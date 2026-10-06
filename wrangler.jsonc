@@ -1,0 +1,39 @@
+// WOOW Shop — Cloudflare Workers settings
+// Secrets (passwords / API keys) are NOT here. Add them in Cloudflare:
+//   Workers & Pages → woow-shop → Settings → Variables and Secrets
+//   ADMIN_PASSWORD, ZINC_API_KEY, SSLCZ_STORE_ID, SSLCZ_STORE_PASSWORD
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "woow-shop",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-09-30",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*", "/pay/*", "/webhooks/*", "/admin", "/admin.html"]
+  },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "woow-shop-db", "database_id": "e8eadacb-10b3-476f-94dc-d2f144647e78" }
+  ],
+  "triggers": { "crons": ["*/30 * * * *"] },
+  "observability": { "enabled": true },
+  "vars": {
+    "ADMIN_USER": "admin",
+    "SSLCZ_SANDBOX": "true",
+    "AUTO_PLACE_ORDERS": "false",
+    "ZINC_MAX_PRICE_BUFFER_PERCENT": "15",
+
+    "WAREHOUSE_FIRST_NAME": "WOOW",
+    "WAREHOUSE_LAST_NAME": "Warehouse",
+    "WAREHOUSE_ADDRESS1": "",
+    "WAREHOUSE_ADDRESS2": "",
+    "WAREHOUSE_CITY": "",
+    "WAREHOUSE_STATE": "DE",
+    "WAREHOUSE_ZIP": "",
+    "WAREHOUSE_PHONE": "",
+
+    "BANK_ACCOUNT_NAME": "WOOW Global (BD)",
+    "BANK_ACCOUNT_NUMBER": "0000 0000 0000",
+    "BANK_NAME_BRANCH": "Your Bank · Gulshan"
+  }
+}

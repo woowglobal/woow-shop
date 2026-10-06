@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>WOOW · Your order</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Poppins:wght@600;700&display=swap">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="hdr"><a class="logo" href="/"><i></i>wOOw<small>Buy For Me</small></a><nav><a class="hb dk" href="/">🛍️ <span>Shop</span></a></nav></header>
+<main class="oc">
+  <div class="card sec" id="find">
+    <h1 style="margin-bottom:6px">Track your order</h1>
+    <p class="lead">Enter your order number and the mobile number you used.</p>
+    <div class="fg"><label>Order number<input class="inp" id="fId" placeholder="WB-123456"></label><label>Mobile<input class="inp" id="fPh" placeholder="01XXXXXXXXX" inputmode="tel"></label></div>
+    <button class="btn dk" style="margin-top:12px" onclick="find()">Show my order</button>
+    <div class="err" id="fErr"></div>
+  </div>
+  <div id="out"></div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const tk = (n) => '৳' + Math.round(n).toLocaleString('en-US');
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const P = new URLSearchParams(location.search);
+const WD = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'], MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const fd = (s) => { const d = new Date(s + 'T12:00:00'); return WD[d.getDay()] + ' ' + d.getDate() + ' ' + MO[d.getMonth()]; };
+let CFG = {};
+async function find(id, phone) {
+  id = (id || $('fId').value).trim().toUpperCase(); phone = (phone || $('fPh').value).trim();
+  $('fErr').style.display = 'none';
+  const r = await fetch(`/api/track/${encodeURIComponent(id)}?phone=${encodeURIComponent(phone)}`);
+  const d = await r.json();
+  if (!r.ok) { $('fErr').textContent = d.error; $('fErr').style.display = 'block'; return; }
+  $('find').hidden = true; draw(d.order, phone);
+}
+function draw(o, phone) {
+  const paidish = !['awaiting_payment', 'bank_review', 'cancelled'].includes(o.status);
+  const steps = [['paid', 'Paid in Taka'], ['purchasing', 'GENI is buying from the stores'], ['purchased', 'Bought — on the way to our US warehouse'], ['at_warehouse', 'At WOOW US warehouse'], ['in_flight', 'On the WOOW flight'], ['in_dhaka', 'In Dhaka, clearing customs'], ['delivered', 'Delivered to you']];
+  const ix = steps.findIndex((s) => s[0] === o.status);
+  const dates = o.delivery ? { at_warehouse: 'by ' + fd(o.delivery.warehouse), in_flight: fd(o.delivery.flight) + ' · ' + o.delivery.flightNo, in_dhaka: fd(o.delivery.land), delivered: fd(o.delivery.deliverFrom) + ' – ' + fd(o.delivery.deliverTo) } : {};
+  let head = '';
+  if (o.status === 'awaiting_payment' && o.method === 'bank') {
+    head = `<div class="card sec"><h3>Send the bank transfer</h3>
+      <p style="margin:0;color:#86868B;font-size:13px">Send exactly <b style="color:#1D1D1F">${tk(o.amount_due)}</b> and write your order number as the reference.</p>
+      <div class="bank"><div><span>Account name</span><b>${esc(CFG.bank?.name)}</b></div><div><span>Account no.</span><b>${esc(CFG.bank?.number)}</b></div><div><span>Bank · branch</span><b>${esc(CFG.bank?.branch)}</b></div><div><span>Reference</span><b>${o.id}</b></div></div>
+      <label class="fg" style="display:block;margin-top:12px"><span style="font-size:12px;font-weight:700;color:#86868B">Transaction ID / reference after sending</span><input class="inp" id="bRef" placeholder="e.g. FT26100612345"></label>
+      <button class="btn dk" style="margin-top:12px" onclick="sendBank('${o.id}','${esc(phone)}')">I have sent the money</button><div class="err" id="bErr"></div>
+      <p class="note">We confirm bank payments within 2 working hours. GENI starts buying once confirmed.</p></div>`;
+  } else if (o.status === 'awaiting_payment') {
+    head = `<div class="card sec"><h3>Payment not finished</h3><p style="margin:0;color:#86868B;font-size:13px">${P.get('failed') ? 'The payment did not go through. ' : ''}Please contact us on WhatsApp with order ${o.id} and we'll help you pay.</p></div>`;
+  }
+  const hero = `<div class="card sec" style="text-align:center;padding:26px">
+    <div class="okc"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#FFD400" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+    <h1 style="margin-top:14px;font-size:24px">${o.status === 'bank_review' ? 'Transfer submitted' : paidish ? (P.get('paid') ? 'Payment received' : o.statusText) : 'Order ' + o.id}</h1>
+    <p class="lead" style="margin:4px 0 0">Order ${o.id} · ${tk(o.amount_paid)} paid of ${tk(o.amount_due)}${o.plan === 'split' ? ' · shipping ' + tk(o.totals.shipping) + ' due on arrival' : ''}</p>
+    ${o.status === 'bank_review' ? '<p class="note">We are checking your transfer (usually within 2 working hours). Check this page for updates.</p>' : ''}</div>`;
+  const tl = `<div class="card sec"><h3>Journey <small>${o.delivery ? '≈ ' + o.delivery.leadDays + ' days lead time' : ''}</small></h3><ul class="tl">` + steps.map((s, i) => {
+      const cls = i <= ix ? 'd' : i === ix + 1 && o.status !== 'delivered' ? 'c' : '';
+      return `<li class="${cls}"><i>${cls === 'd' ? '✓' : i + 1}</i><div><b>${s[1]}</b><small>${dates[s[0]] || ''}</small></div></li>`;
+    }).join('') + '</ul>' + (o.merchantOrders.length ? `<p class="note" style="text-align:left">Store order numbers: ${o.merchantOrders.map(esc).join(', ')}</p>` : '') + '</div>';
+  const items = `<div class="card sec"><h3>Items</h3>${o.items.map((i) => `<div class="ci"><img src="${esc(i.image || '')}" alt=""><div><b>${esc(i.title)}</b><small>${esc(i.store)} · Qty ${i.qty}</small></div><b>${tk(i.lineBdt)}</b></div>`).join('')}</div>`;
+  $('out').innerHTML = head + hero + tl + items;
+}
+async function sendBank(id, phone) {
+  const r = await fetch(`/api/orders/${id}/bank`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, reference: $('bRef').value }) });
+  const d = await r.json(); if (!r.ok) { $('bErr').textContent = d.error; $('bErr').style.display = 'block'; return; }
+  find(id, phone);
+}
+(async () => {
+  CFG = await (await fetch('/api/config')).json();
+  if (P.get('id') && P.get('phone')) { $('fId').value = P.get('id'); $('fPh').value = P.get('phone'); find(P.get('id'), P.get('phone')); }
+})();
+</script>
+</body>
+</html>
