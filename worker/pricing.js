@@ -1,9 +1,20 @@
 // Money rules + delivery plan. Prices are ALWAYS calculated on the server.
 export const DEFAULT_SETTINGS = {
   rate: 122.4,          // 1 USD = ? BDT  (update daily in Admin → Settings)
-  feePercent: 8,        // WOOW buying service, % of product price
-  minFee: 250,          // minimum service fee in BDT
-  kgRate: 1650,         // shipping + customs to Dhaka, BDT per kg
+  feePercent: 8,        // (old single rate, not used any more)
+  feeLow: 7,            // WOOW buying & purchase fee, % — item under feeCut USD   (never shown to customers)
+  feeHigh: 5,           // … item feeCut USD and above
+  feeCut: 100,
+  minFee: 250,          // minimum fee per order, BDT
+  kgRate: 2100,         // air shipping + customs to Dhaka, BDT per chargeable kg
+  volDivisor: 6000,     // volumetric kg = L × W × H (cm) ÷ this
+  // brokerage in Dhaka customs, BDT per chargeable kg, by product words
+  brokerRules: [{ name: 'Vitamins & supplements', words: 'vitamin,supplement,protein,whey,creatine,capsule,softgel,gummies,gummy,collagen,omega,probiotic,multivitamin,biotin,melatonin,mass gainer,pre-workout,preworkout,fish oil', perKg: 800 }],
+  // always volumetric (box size when the store gives none), inches
+  volRules: [
+    { name: 'Shoes', words: 'shoe,shoes,sneaker,sneakers,boot,boots,sandal,sandals,slipper,slippers,loafer,heels,clog,cleats', dims: [13, 8, 5] },
+    { name: 'Bags', words: 'bag,handbag,backpack,purse,tote,crossbody,satchel,luggage,suitcase,duffel,clutch,wallet', dims: [16, 7, 12] },
+  ],
   defaultKg: 0.5,       // estimated weight when the store gives none
   packagingPercent: 10, // seller's courier box adds weight: estimate = seller weight + 10%
   brokerageList: [      // products that may have a customs brokerage charge in Dhaka (edit in Admin → Settings)
@@ -19,7 +30,7 @@ export const DEFAULT_SETTINGS = {
     bestbuy: { freeOver: 35, fee: 5.99 }, macys: { freeOver: 25, fee: 10.95 }, costco: { freeOver: 75, fee: 9.99 },
     default: { freeOver: 35, fee: 7.99 },
   },
-  warehouseState: 'DE',  // DE = Delaware (no sales tax) · NY = New York
+  warehouseState: 'NY',  // NY = New York (8.875%) · DE = Delaware (no sales tax)
   taxRates: { DE: 0, NY: 8.875 }, // % sales tax on products + US delivery
   zincDailyBudgetCents: 300,
   homeDeliveryFee: 0,    // ৳ for home delivery in Bangladesh (pickup from the WOOW office is always free)
@@ -41,7 +52,7 @@ export async function getPricing(db) {
 
 export async function savePricing(db, p) {
   const next = await getPricing(db);
-  for (const k of ['rate', 'feePercent', 'minFee', 'kgRate', 'defaultKg', 'packagingPercent', 'rateLockMinutes', 'dhakaDaysAfterFlight']) {
+  for (const k of ['rate', 'feePercent', 'feeLow', 'feeHigh', 'feeCut', 'minFee', 'kgRate', 'volDivisor', 'defaultKg', 'packagingPercent', 'rateLockMinutes', 'dhakaDaysAfterFlight']) {
     if (p[k] !== undefined && p[k] !== '' && !Number.isNaN(Number(p[k]))) next[k] = Number(p[k]);
   }
   if (p.guard && typeof p.guard === 'object') { next.guard = { ...(next.guard || {}) }; for (const [k, v] of Object.entries(p.guard)) if (['browsePer30', 'paidPer30', 'guestPaidPer30', 'ipPaidPer30', 'blockHours'].includes(k) && Number(v) > 0) next.guard[k] = Math.min(10000, Number(v)); }
@@ -53,6 +64,8 @@ export async function savePricing(db, p) {
     for (const [k, v] of Object.entries(p.usShipping)) if (/^[a-z]+$/.test(k) && v && Number(v.freeOver) >= 0 && Number(v.fee) >= 0) u[k] = { freeOver: Number(v.freeOver), fee: Number(v.fee) };
     if (u.default) next.usShipping = u;
   }
+  if (Array.isArray(p.brokerRules)) next.brokerRules = p.brokerRules.map((r) => ({ name: String(r.name || '').slice(0, 60), words: String(r.words || '').toLowerCase().slice(0, 600), perKg: Math.max(0, Number(r.perKg) || 0) })).filter((r) => r.name && r.words).slice(0, 20);
+  if (Array.isArray(p.volRules)) next.volRules = p.volRules.map((r) => ({ name: String(r.name || '').slice(0, 60), words: String(r.words || '').toLowerCase().slice(0, 600), dims: (Array.isArray(r.dims) ? r.dims : String(r.dims || '').split(/[x×, ]+/)).map(Number).filter((n) => n > 0).slice(0, 3) })).filter((r) => r.name && r.words && r.dims.length === 3).slice(0, 20);
   if (Array.isArray(p.brokerageList)) next.brokerageList = p.brokerageList.map((x) => String(x).trim().slice(0, 120)).filter(Boolean).slice(0, 40);
   if (Array.isArray(p.flightMonthDays)) { const d = p.flightMonthDays.map(Number).filter((x) => x >= 1 && x <= 31); if (d.length) next.flightMonthDays = [...new Set(d)].sort((a, b) => a - b); }
   if (Array.isArray(p.flights)) next.flights = cleanFlights(p.flights);
@@ -63,18 +76,35 @@ export async function savePricing(db, p) {
 export const taxRate = (p) => Number((p.taxRates || {})[p.warehouseState] || 0);
 export const shipRule = (p, retailer) => (p.usShipping || {})[retailer] || (p.usShipping || {}).default || { freeOver: 35, fee: 7.99 };
 
-/** items: [{ retailer, priceCents, qty, kg, shipCents? }]
- *  Per store: US delivery to the WOOW warehouse (free over the store's limit), then US sales tax
- *  for the warehouse state (Delaware 0%), WOOW fee, and air shipping to Dhaka by estimated weight. */
+// word match on the product title ("whey protein" → supplements, "running shoes" → shoes)
+const hits = (title, words) => { const t = ' ' + String(title || '').toLowerCase().replace(/[^a-z0-9 -]+/g, ' ') + ' '; return String(words || '').split(',').map((w) => w.trim()).filter(Boolean).some((w) => t.includes(' ' + w + ' ') || t.includes(' ' + w + 's ')); };
+export const brokerFor = (it, p) => (p.brokerRules || []).find((r) => r.perKg > 0 && hits(it.title, r.words)) || null;
+const volFor = (it, p) => (p.volRules || []).find((r) => hits(it.title, r.words)) || null;
+const r2 = (n) => Math.round(n * 100) / 100;
+
+/** Weight one line: actual (seller weight + hidden packing), volumetric (box size), chargeable = the bigger one. */
+export function lineWeight(it, p) {
+  const packed = (Number(it.kg) || p.defaultKg) * (1 + (p.packagingPercent ?? 10) / 100);
+  const vr = volFor(it, p);
+  const dims = Array.isArray(it.dims) && it.dims.length === 3 && it.dims.every((x) => x > 0) ? it.dims : vr ? vr.dims : null;
+  const vol = dims ? (dims[0] * dims[1] * dims[2] * 16.387) / (p.volDivisor || 6000) : 0;
+  const per = Math.max(packed, vol);
+  return { actualKg: r2(packed * it.qty), volKg: r2(vol * it.qty), dims: dims ? dims.map((x) => Math.round(x * 10) / 10) : null, dimsFrom: it.dims ? 'store' : vr ? vr.name : null,
+    volumetric: vol > packed, chargeKg: Math.ceil(per * it.qty * 10) / 10 };
+}
+
+/** items: [{ retailer, store, title, priceCents, qty, kg, dims?, shipCents?, thirdParty?, freeShipping? }]
+ *  1) each seller's order (items + shipping & handling + US sales tax) like the store shows it
+ *  2) WOOW buying & purchase fee   3) Bangladesh import: air shipping by chargeable kg + brokerage by kg. */
 export function quote(items, p, opt = {}) {
-  let usd = 0, kg = 0;
+  let usd = 0, feeBdt = 0;
   const groups = {};
   const lines = items.map((it) => {
     const lineUsd = (it.priceCents / 100) * it.qty;
     usd += lineUsd;
-    kg += (it.kg || p.defaultKg) * it.qty;
-    const g = (groups[it.retailer] ||= { retailer: it.retailer, store: it.store, subCents: 0, firstCents: 0, zincShip: [], sellerCents: 0, noFree: false });
-    g.subCents += it.priceCents * it.qty;
+    feeBdt += lineUsd * p.rate * ((it.priceCents / 100) < (p.feeCut || 100) ? (p.feeLow ?? 7) : (p.feeHigh ?? 5)) / 100;
+    const g = (groups[it.retailer] ||= { retailer: it.retailer, store: it.store, subCents: 0, firstCents: 0, zincShip: [], sellerCents: 0, noFree: false, n: 0 });
+    g.subCents += it.priceCents * it.qty; g.n += it.qty;
     if (it.thirdParty) {
       // marketplace seller: always pays the seller's own shipping (per unit, safe side), never the store's free-over-$35
       g.sellerCents += (Number.isFinite(it.shipCents) ? it.shipCents : Math.round(shipRule(p, it.retailer).fee * 100)) * it.qty;
@@ -83,8 +113,11 @@ export function quote(items, p, opt = {}) {
       if (Number.isFinite(it.shipCents)) g.zincShip.push(it.shipCents);
       if (it.freeShipping === false && !Number.isFinite(it.shipCents)) g.noFree = true; // store says: not free-shipping eligible
     }
-    return { ...it, lineUsd: Math.round(lineUsd * 100) / 100, lineBdt: Math.round(lineUsd * p.rate) };
+    const w = lineWeight(it, p), br = brokerFor(it, p);
+    return { ...it, lineUsd: r2(lineUsd), lineBdt: Math.round(lineUsd * p.rate), ...w,
+      brokerage: br ? { name: br.name, perKg: br.perKg, bdt: Math.round(w.chargeKg * br.perKg) } : null };
   });
+  const tr = taxRate(p);
   const stores = Object.values(groups).map((g) => {
     const r = shipRule(p, g.retailer), limit = Math.round(r.freeOver * 100);
     let storeShip = 0, source = 'none';
@@ -95,26 +128,33 @@ export function quote(items, p, opt = {}) {
     }
     const shipCents = storeShip + g.sellerCents;
     if (g.sellerCents) source = source === 'none' ? 'seller' : source + '+seller';
-    return { retailer: g.retailer, store: g.store, subUsd: g.subCents / 100, shipUsd: shipCents / 100, sellerShipUsd: g.sellerCents / 100, freeOver: r.freeOver,
-      needUsd: storeShip && !g.noFree ? Math.max(0, Math.round(limit - g.firstCents) / 100) : 0, source };
+    const taxUsd = Math.round((g.subCents + shipCents) * tr) / 10000;
+    return { retailer: g.retailer, store: g.store, items: g.n, subUsd: g.subCents / 100, shipUsd: shipCents / 100, sellerShipUsd: g.sellerCents / 100, freeOver: r.freeOver,
+      needUsd: storeShip && !g.noFree ? Math.max(0, Math.round(limit - g.firstCents) / 100) : 0, source,
+      taxUsd: r2(taxUsd), totalUsd: r2(g.subCents / 100 + shipCents / 100 + taxUsd), totalBdt: Math.round((g.subCents / 100 + shipCents / 100 + taxUsd) * p.rate) };
   });
-  const usShipUsd = Math.round(stores.reduce((a, s) => a + s.shipUsd, 0) * 100) / 100;
-  const tr = taxRate(p), taxUsd = Math.round((usd + usShipUsd) * tr) / 100;
-  const sellerKg = Math.round(kg * 100) / 100;
-  kg = Math.ceil(kg * (1 + (p.packagingPercent ?? 10) / 100) * 10) / 10; // + packing box weight
+  const usShipUsd = r2(stores.reduce((a, s) => a + s.shipUsd, 0));
+  const taxUsd = r2(stores.reduce((a, s) => a + s.taxUsd, 0));
   const product = Math.round(usd * p.rate);
   const usShip = Math.round(usShipUsd * p.rate), usTax = Math.round(taxUsd * p.rate);
-  const fee = items.length ? Math.round(Math.max(p.minFee, product * p.feePercent / 100)) : 0;
+  const fee = items.length ? Math.round(Math.max(p.minFee || 0, feeBdt)) : 0;
+  const kg = Math.ceil(lines.reduce((a, l) => a + l.chargeKg, 0) * 10) / 10;
+  const sellerKg = r2(lines.reduce((a, l) => a + l.actualKg, 0)), volKg = r2(lines.reduce((a, l) => a + l.volKg, 0));
   const shipping = Math.round(kg * p.kgRate);
+  const brokerage = lines.reduce((a, l) => a + (l.brokerage?.bdt || 0), 0);
   const payNowSplit = product + usShip + usTax + fee;
   const localDelivery = opt.pickup ? 0 : Math.round(p.homeDeliveryFee || 0); // paid with the second (arrival) invoice
+  const arrival = shipping + brokerage + localDelivery;
   return {
     pickup: !!opt.pickup, localDelivery,
-    lines, usd: Math.round(usd * 100) / 100, rate: p.rate, product, stores, usShipUsd, usShip,
-    taxState: p.warehouseState, taxRate: tr, taxUsd, usTax, fee, sellerKg, packagingPercent: p.packagingPercent ?? 10, kg, shipping,
-    total: payNowSplit + shipping + localDelivery, payNowSplit,
+    lines, usd: r2(usd), rate: p.rate, product, stores, usShipUsd, usShip,
+    taxState: p.warehouseState, taxRate: tr, taxUsd, usTax, fee, sellerKg, volKg, volumetric: lines.some((l) => l.volumetric), kg, kgRate: p.kgRate, shipping, brokerage,
+    storeTotalUsd: r2(usd + usShipUsd + taxUsd), storeTotalBdt: product + usShip + usTax,
+    total: payNowSplit + arrival, payNowSplit, arrival,
   };
 }
+/** Delivered-to-Dhaka price for one product card (computed on the server so fee rules stay private). */
+export const estimateOne = (pr, p) => (pr && pr.priceCents ? quote([{ ...pr, qty: 1 }], p).total : null);
 
 export function cleanFlights(list) {
   const today = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);

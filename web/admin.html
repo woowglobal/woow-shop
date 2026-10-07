@@ -109,9 +109,12 @@ td{padding:12px;border-bottom:1px solid #F2F2F5;vertical-align:top}tr.r{cursor:p
       <h3>Prices &amp; schedule</h3>
       <div class="set">
         <label>Dollar rate (৳ per $1)<input class="inp" id="sRate" type="number" step="0.01"></label>
-        <label>Service fee %<input class="inp" id="sFee" type="number" step="0.1"></label>
+        <label>Buying fee % — item under the cut (hidden from customers)<input class="inp" id="sFeeLo" type="number" step="0.1"></label>
+        <label>Buying fee % — item at/over the cut<input class="inp" id="sFeeHi" type="number" step="0.1"></label>
+        <label>Fee cut (USD per item)<input class="inp" id="sFeeCut" type="number"></label>
         <label>Minimum fee ৳<input class="inp" id="sMin" type="number"></label>
-        <label>Shipping + customs ৳ per kg<input class="inp" id="sKg" type="number"></label>
+        <label>Air shipping ৳ per kg<input class="inp" id="sKg" type="number"></label>
+        <label>Volume weight divisor (cm³ per kg)<input class="inp" id="sVol" type="number"></label>
         <label>Default weight kg<input class="inp" id="sDef" type="number" step="0.1"></label>
         <label>Days from flight to Dhaka<input class="inp" id="sLand" type="number"></label>
         <label>Packing weight added %<input class="inp" id="sPack" type="number" step="1"></label>
@@ -138,6 +141,10 @@ td{padding:12px;border-bottom:1px solid #F2F2F5;vertical-align:top}tr.r{cursor:p
         <label>Block for (hours)<input class="inp" id="gHours" type="number"></label>
         <label>Home delivery in Bangladesh ৳ (pickup always free)<input class="inp" id="sHome" type="number"></label>
       </div>
+      <span class="lbl">Brokerage ৳ per kg by product words — one rule per line: <b>Name | word, word, … | ৳ per kg</b></span>
+      <textarea class="inp" id="sBrkR" style="height:90px;padding:10px 12px;font-size:12.5px"></textarea>
+      <span class="lbl">Always charged by box size when the store gives none — one per line: <b>Name | word, word, … | L x W x H inches</b></span>
+      <textarea class="inp" id="sVolR" style="height:90px;padding:10px 12px;font-size:12.5px"></textarea>
       <span class="lbl">Products that may have a customs brokerage charge (one per line)</span>
       <textarea class="inp" id="sBrk" style="height:160px;padding:10px 12px"></textarea>
       <h3 style="margin-top:22px">✈️ WOOW flights</h3>

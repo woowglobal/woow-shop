@@ -70,7 +70,7 @@ function draw(o, phone) {
   const hero = `<div class="card sec" style="text-align:center;padding:26px">
     <div class="okc"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#FFD400" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
     <h1 style="margin-top:14px;font-size:24px">${o.status === 'bank_review' ? 'Transfer submitted' : paidish ? (P.get('paid') ? 'Payment received' : o.statusText) : 'Order ' + o.id}</h1>
-    <p class="lead" style="margin:4px 0 0">Order ${o.id} · ${tk(o.amount_paid)} paid of ${tk(o.amount_due)}${o.plan === 'split' ? ' · shipping ' + tk(o.totals.shipping) + ' due on arrival' : ''}</p>
+    <p class="lead" style="margin:4px 0 0">Order ${o.id} · ${tk(o.amount_paid)} paid of ${tk(o.amount_due)}${o.plan === 'split' ? ' · ' + tk(o.totals.arrival ?? o.totals.shipping) + ' due on arrival' : ''}</p>
     ${o.status === 'bank_review' ? '<p class="note">We are checking your transfer (usually within 2 working hours). Check this page for updates.</p>' : ''}</div>`;
   const tl = `<div class="card sec"><h3>Journey <small>${o.delivery ? '≈ ' + o.delivery.leadDays + ' days lead time' : ''}</small></h3><ul class="tl">` + steps.map((s, i) => {
       const cls = i <= ix ? 'd' : i === ix + 1 && o.status !== 'delivered' ? 'c' : '';

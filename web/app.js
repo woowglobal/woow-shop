@@ -178,15 +178,11 @@ function usShip(retailer, subCents, shipCents) {
   if (subCents >= r.freeOver * 100) return { c: 0, free: true, r };
   return { c: Number.isFinite(shipCents) ? shipCents : Math.round(r.fee * 100), r, need: Math.max(0, r.freeOver * 100 - subCents) };
 }
+// Delivered-to-Dhaka price comes from the server (estBdt) — fee rules are never in the browser.
 function est(p, n = 1) {
-  const sub = p.priceCents * n, item = (sub / 100) * CFG.rate;
-  const s = usShip(p.retailer, sub, p.shipCents);
-  const usD = (s.c / 100) * CFG.rate, tax = ((sub + s.c) / 100) * (CFG.taxRate || 0) / 100 * CFG.rate;
-  const fee = Math.max(CFG.minFee, item * CFG.feePercent / 100);
-  const sellerKg = Math.round((p.kg || CFG.defaultKg) * n * 100) / 100;
-  const kg = Math.ceil(sellerKg * (1 + CFG.packagingPercent / 100) * 10) / 10; // + courier box
-  const ship = kg * CFG.kgRate, now = item + usD + tax + fee;
-  return { item, s, usD, tax, fee, sellerKg, kg, ship, now, total: now + ship, listed: !!p.kg };
+  const s = usShip(p.retailer, p.priceCents * n, p.shipCents);
+  const total = p.estBdt ? p.estBdt * n : Math.round((p.priceCents / 100) * n * CFG.rate * 1.12 + 0.6 * n * CFG.kgRate);
+  return { s, total };
 }
 const taxNote = () => CFG.taxRate ? `${CFG.taxRate}% · ${CFG.warehouseState === 'NY' ? 'New York' : CFG.warehouseState} warehouse` : 'Delaware warehouse · tax-free';
 const shipNote = (s) => s.free ? `Free over $${s.r.freeOver}` : `${usd(s.c)} · add ${usd(s.need)} for free`;
@@ -272,7 +268,7 @@ function planHtml(p, pickup) {
   const multi = p.stores.length > 1;
   return `<div class="dp"><div class="dp-h"><b>Delivery plan</b><span>≈ ${p.leadDays} days lead time</span></div><ol class="dpl">
   <li><i></i><span>GENI buys from ${multi ? 'the stores' : esc(sName(p.stores[0].retailer))}</span><b>${fd(D(p.buy))}</b></li>
-  <li><i></i><span>WOOW US warehouse receives<small>Store ships to our Delaware warehouse</small></span><b>${fd(D(p.warehouse))}</b>${multi ? '<div class="dps">' + p.stores.map((s) => `<div><span>${esc(sName(s.retailer))}</span><b>${fr(D(s.from), D(s.to))}</b></div>`).join('') + '</div>' : ''}</li>
+  <li><i></i><span>WOOW US warehouse receives<small>Store ships to our ${STATE[CFG.warehouseState] || 'US'} warehouse</small></span><b>${fd(D(p.warehouse))}</b>${multi ? '<div class="dps">' + p.stores.map((s) => `<div><span>${esc(sName(s.retailer))}</span><b>${fr(D(s.from), D(s.to))}</b></div>`).join('') + '</div>' : ''}</li>
   <li class="fl"><i>✈</i><span>WOOW flight<small>${p.flightNo} · USA → Dhaka</small></span><b>${fd(D(p.flight))}</b></li>
   <li><i></i><span>Lands in Dhaka, customs cleared</span><b>${fd(D(p.land))}</b></li>
   <li class="end"><i>✓</i><span>${pickup ? 'Ready to pick up at WOOW office<small>Baridhara DOHS · 10 AM – 6 PM, closed Fri</small>' : 'Delivered to you'}</span><b>${fr(D(p.deliverFrom), D(p.deliverTo))}</b></li></ol>
@@ -461,7 +457,7 @@ function cmpCart_(u) {
 function openQuote(d) {
   $('qUrl').value = d.url; $('qTitle').value = ''; $('qUsd').value = ''; $('qQty').value = 1; $('qOpt').value = '';
   $('qStore').textContent = d.store;
-  $('qMember').textContent = d.retailer === 'costco' ? 'Bought with WOOW\'s Costco membership' : 'Shipped to our Delaware warehouse';
+  $('qMember').textContent = d.retailer === 'costco' ? 'Bought with WOOW\'s Costco membership' : 'Shipped to our ' + (STATE[CFG.warehouseState] || 'US') + ' warehouse';
   try { const c = JSON.parse(localStorage.getItem('woowCustomer') || 'null'); if (c) { $('qName').value = c.name || ''; $('qPhone').value = c.phone || ''; $('qEmail').value = c.email || ''; $('qCity').value = c.city || 'Dhaka'; $('qAddr').value = c.address || ''; } } catch {}
   $('qErr').style.display = 'none'; go('quote');
 }
@@ -487,27 +483,59 @@ function openItem(p) {
   rvAdd(p); rvDraw(); beacon('view', p);
 }
 function q(d) { qty = Math.max(1, Math.min(9, qty + d)); $('dQ').textContent = qty; upd(); }
-function weightBox(c) {
-  return `<div class="mini"><span>Est. weight <b>≈ ${c.kg} kg</b></span><span>Pay now <b>${tk(c.now)}</b></span><button onclick="showBrokerage()">See more</button></div>`;
-}
-function secondInvoice() { return ''; }
-function showBrokerage() {
-  $('brkList').innerHTML = (CFG.brokerageList || []).map((x) => `<li>${esc(x)}</li>`).join('');
-  $('brkWa').href = `https://wa.me/${CFG.whatsapp}?text=${encodeURIComponent('Hi WOOW, I want to know the customs brokerage charge for: ' + (cur ? cur.title + ' ' + cur.url : ''))}`;
-  $('brkM').hidden = false;
-}
+let estT = null, EST = null;
 function upd() {
   const c = est(cur, qty);
-  $('dBd').textContent = tk(c.total); $('dUs').textContent = `${usd(cur.priceCents * qty)} at ${cur.store} · rate ৳${CFG.rate}`;
-  $('dBrk').innerHTML = `<div><span>Product price<small>${usd(cur.priceCents * qty)} × ৳${CFG.rate}</small></span><b>${tk(c.item)}</b></div>
-  <div><span>US delivery to WOOW warehouse<small>${shipNote(c.s)}</small></span><b class="${c.s.c ? '' : 'free'}">${c.s.c ? tk(c.usD) : 'Free'}</b></div>
-  <div><span>US sales tax<small>${taxNote()} <button class="lnk" onclick="showWhy()">Why?</button></small></span><b class="${c.tax ? '' : 'free'}">${tk(c.tax)}</b></div>
-  <div><span>WOOW buying service<small>${CFG.feePercent}%, minimum ৳${CFG.minFee}</small></span><b>${tk(c.fee)}</b></div>
-  <div><span>Shipping &amp; customs to Dhaka<small>Est. ${c.kg} kg × ৳${CFG.kgRate.toLocaleString('en-US')}</small></span><b>${tk(c.ship)}</b></div>`;
-  $('dExtra').innerHTML = weightBox(c) + secondInvoice(c);
-  $('dPlan').innerHTML = planHtml(localPlan([cur.retailer]));
+  $('dBd').textContent = tk(c.total); $('dUs').textContent = `${usd(cur.priceCents * qty)} at ${cur.store}`;
+  $('dExtra').innerHTML = ''; $('dPlan').innerHTML = planHtml(localPlan([cur.retailer]));
   setMbar(`<div><small>Delivered to Dhaka</small><b>${tk(c.total)}</b></div><button class="b1" onclick="addCart(true)">Add to cart</button><button class="b2" onclick="addCart(false);go('pay')">Buy now</button>`);
+  clearTimeout(estT); const want = cur.url + '|' + qty;
+  estT = setTimeout(async () => {
+    try {
+      const d = await api('/api/estimate', { url: cur.url, qty });
+      if (!cur || cur.url + '|' + qty !== want) return;
+      EST = d; const t = d.quote;
+      $('dBd').textContent = tk(t.total); $('dUs').textContent = `${usd(cur.priceCents * qty)} at ${cur.store} · $1 = ৳${t.rate}`;
+      $('dBrk').innerHTML = ''; $('dExtra').innerHTML = breakdownHtml(t, { one: cur });
+      setMbar(`<div><small>Delivered to Dhaka</small><b>${tk(t.total)}</b></div><button class="b1" onclick="addCart(true)">Add to cart</button><button class="b2" onclick="addCart(false);go('pay')">Buy now</button>`);
+    } catch { $('dBrk').innerHTML = ''; }
+  }, 120);
 }
+
+// ── Price breakdown (product page, cart, checkout): 1) each seller's order  2) WOOW fee  3) Bangladesh import ──
+const STATE = { NY: 'New York', DE: 'Delaware', NJ: 'New Jersey' };
+const sx = (id) => STORES.find((x) => x.id === id) || { c: '#1D1D1F', l: '•' };
+function breakdownHtml(t, o = {}) {
+  const sellers = t.stores.map((st) => {
+    const s = sx(st.retailer), link = o.one ? storeLink(o.one) : null;
+    const shipSub = st.shipUsd ? (st.sellerShipUsd ? 'Marketplace seller ships it' : st.needUsd ? `Add ${usd(st.needUsd * 100)} more for free shipping` : 'Store shipping to WOOW US warehouse') : 'Free shipping to WOOW US warehouse';
+    return `<section class="qs"><header style="--sc:${s.c}"><i>${esc(s.l)}</i><b>${esc(st.store)} order</b>${link ? `<a href="${esc(link)}" target="_blank" rel="noopener">Same price on ${esc(st.store)} ↗</a>` : ''}</header>
+      <div class="qr"><span>Items (${st.items})</span><b>${usd(st.subUsd * 100)}</b></div>
+      <div class="qr"><span>Shipping &amp; handling<small>${shipSub}</small></span><b class="${st.shipUsd ? '' : 'free'}">${usd(st.shipUsd * 100)}</b></div>
+      <div class="qr"><span>Estimated tax to be collected<small>${t.taxRate ? `${STATE[t.taxState] || t.taxState} sales tax ${t.taxRate}%` : `${STATE[t.taxState] || t.taxState} · no sales tax`} <button class="why" onclick="info('tax')">Why?</button></small></span><b>${usd(st.taxUsd * 100)}</b></div>
+      <div class="qr qt"><span>Order total</span><b>${usd(st.totalUsd * 100)}<small>${tk(st.totalBdt)}</small></b></div></section>`;
+  }).join('');
+  const L = t.lines, vol = L.filter((l) => l.volumetric);
+  const brk = {}; L.forEach((l) => { if (l.brokerage) { const b = (brk[l.brokerage.name] ||= { kg: 0, perKg: l.brokerage.perKg, bdt: 0 }); b.kg += l.chargeKg; b.bdt += l.brokerage.bdt; } });
+  const wl = L.length === 1 ? L[0] : null, kgf = (x) => (Math.ceil(x * 10 - 1e-9) / 10).toFixed(1);
+  const tiles = `<div class="wts"><div><small>Weight</small><b>${kgf(wl ? wl.actualKg : t.sellerKg)} kg</b><em>with packing</em></div>${(wl ? wl.volKg : t.volKg) > 0 ? `<div class="${(wl ? wl.volumetric : t.volumetric) ? 'hi' : ''}"><small>Volume weight</small><b>${kgf(wl ? wl.volKg : t.volKg)} kg</b><em>${wl && wl.dims ? wl.dims.join(' × ') + ' in' : 'box size'}</em></div>` : ''}<div class="pay"><small>You pay for</small><b>${t.kg.toFixed(1)} kg</b><em>${L.length > 1 ? 'bigger one per item' : t.volumetric ? 'volume weight' : 'actual weight'}</em></div></div>
+    ${vol.length ? `<p class="vnote">📦 ${vol.length === 1 && wl ? `${wl.dimsFrom && wl.dimsFrom !== 'store' ? esc(wl.dimsFrom) + ' are' : 'This item is'} charged by box size${wl.dims ? ` (${wl.dims.join(' × ')} in)` : ''} — volume weight ${kgf(wl.volKg)} kg` : 'Some items are charged by box size (volume weight)'}. <button class="why" onclick="info('weight')">Why?</button></p>` : ''}`;
+  return `<div class="qb2">${sellers}
+    <section class="qs"><header class="ww"><i>w</i><b>WOOW</b></header>
+      <div class="qr"><span>Buying &amp; purchase fee<small>We buy, pay, receive and track it for you <button class="why" onclick="info('fee')">See more</button></small></span><b>${tk(t.fee)}</b></div></section>
+    <section class="qs"><header class="im"><i>✈</i><b>Bangladesh import</b></header>${tiles}
+      <div class="qr"><span>Air shipping to Dhaka<small>${t.kg.toFixed(1)} kg × ৳${t.kgRate.toLocaleString('en-US')}</small></span><b>${tk(t.shipping)}</b></div>
+      ${Object.entries(brk).map(([n, b]) => `<div class="qr"><span>Customs brokerage · ${esc(n)}<small>${b.kg.toFixed(1)} kg × ৳${b.perKg.toLocaleString('en-US')} <button class="why" onclick="info('brokerage')">Why?</button></small></span><b>${tk(b.bdt)}</b></div>`).join('')}
+      ${t.localDelivery ? `<div class="qr"><span>Home delivery in Bangladesh</span><b>${tk(t.localDelivery)}</b></div>` : ''}</section>
+    <div class="qpay"><div><small>Pay now</small><b>${tk(t.payNowSplit)}</b><em>Store order + WOOW fee</em></div><div><small>On arrival</small><b>${tk(t.arrival)}</b><em>Import · by real weight</em></div></div></div>`;
+}
+const INFO = {
+  tax: () => [`US sales tax${CFG.taxRate ? ' · ' + CFG.taxRate + '%' : ''}`, `<p>US stores must collect sales tax for the state the parcel is delivered to. Your items go to the <b>WOOW US warehouse in ${STATE[CFG.warehouseState] || CFG.warehouseState}</b>, so the store adds ${CFG.taxRate ? `${STATE[CFG.warehouseState] || ''} sales tax of <b>${CFG.taxRate}%</b> on the items and shipping` : 'no sales tax'} — exactly what you would pay on the store's own website.</p><p>WOOW does not add anything to this tax; it goes to the store and the state.</p>`],
+  fee: () => ['WOOW buying & purchase fee', `<p>One simple fee covers everything WOOW does to get the item from the US store to you:</p><ul><li>🏦 Bank charges and US dollar transfer</li><li>💳 Card payment fees to the store</li><li>🛒 Placing and checking the order with the seller</li><li>📦 Receiving, checking and packing your parcel at our US warehouse</li><li>🔔 Tracking and updates from GENI until it reaches you</li><li>🧡 A small margin to keep WOOW running for you</li></ul>`],
+  weight: () => ['Actual weight vs volume weight', `<p>Airlines charge for the space a parcel takes, not only its weight. For light but bulky items — like <b>shoes and bags</b> — the box size decides the price.</p><p><b>Volume weight</b> = length × width × height (cm) ÷ ${CFG.volDivisor || 6000}. We charge the bigger of the actual weight and the volume weight.</p><p>Your parcel is measured again at our US warehouse; the arrival invoice uses the real numbers.</p>`],
+  brokerage: () => ['Customs brokerage', `<p>Some products — like <b>vitamins, supplements and protein</b> — need extra customs clearing work in Dhaka. The brokerage charge is per kg, shown before you pay.</p><ul>${(CFG.brokerageList || []).map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`],
+};
+function info(k) { const [h, b] = INFO[k](); $('infoT').textContent = h; $('infoB').innerHTML = b; $('infoWa').href = `https://wa.me/${CFG.whatsapp}?text=${encodeURIComponent('Hi WOOW, I have a question about: ' + h)}`; $('infoM').hidden = false; }
 function addCart(show) { return needLogin(() => addCart_(show), 'Sign in to add this to your cart.'); }
 function addCart_(show) {
   const option = $('dOpt').value.trim();
@@ -525,13 +553,8 @@ async function getQuote(checkout) {
 }
 function sumHtml(d, btn) {
   const t = d.quote;
-  return `<div class="tt">Order total</div>
-  <div class="row" style="margin-top:8px"><span>Products (${'$' + t.usd.toFixed(2)})</span><b>${tk(t.product)}</b></div>
-  <div class="row"><span>US delivery to warehouse</span><b class="${t.usShip ? '' : 'free'}">${t.usShip ? tk(t.usShip) : 'Free'}</b></div>
-  <div class="row"><span>US sales tax · ${t.taxRate ? t.taxRate + '% ' + esc(t.taxState) : 'Delaware 0%'}</span><b class="${t.usTax ? '' : 'free'}">${tk(t.usTax)}</b></div>
-  <div class="row"><span>WOOW buying service</span><b>${tk(t.fee)}</b></div>
-  <div class="row"><span>Shipping &amp; customs · est. ${t.kg} kg <button class="lnk" onclick="showBrokerage()">See more</button></span><b>${tk(t.shipping)}</b></div>
-  <div class="tot"><span>Total</span><b>${tk(t.total)}</b></div>${btn}${planHtml(d.delivery, t.pickup)}`;
+  return `<div class="tt">Price breakdown</div>${breakdownHtml(t)}
+  <div class="tot"><span>Total to your door</span><b>${tk(t.total)}</b></div>${btn}${planHtml(d.delivery, t.pickup)}`;
 }
 async function rCart() {
   save();
@@ -549,7 +572,7 @@ async function rCart() {
 function routeHtml(d) {
   const t = d.quote, p = d.delivery;
   const step = (ic, h, v, sub) => `<div class="rs"><i>${ic}</i><b>${h}</b><em>${v}</em><small>${sub}</small></div>`;
-  return `<div class="route card">${step('🛍️', 'US stores', tk(t.product), 'Same price as the store')}<span class="ra"></span>${step('🏬', 'WOOW US warehouse', t.usShip ? '+' + tk(t.usShip + t.usTax) : (t.usTax ? '+' + tk(t.usTax) : 'Free'), t.usShip ? (t.taxRate ? 'US delivery + ' + t.taxRate + '% tax' : 'US delivery · 0% tax') : (t.taxRate ? 'Free delivery + ' + t.taxRate + '% tax' : 'Free delivery · 0% tax'))}<span class="ra"></span>${step('✈️', 'WOOW flight', tk(t.shipping), p ? fd(D(p.flight)) : 'Air to Dhaka')}<span class="ra"></span>${step('🏠', 'Your door', p ? fr(D(p.deliverFrom), D(p.deliverTo)) : '', 'Customs cleared')}
+  return `<div class="route card">${step('🛍️', 'US stores', tk(t.product), 'Same price as the store')}<span class="ra"></span>${step('🏬', 'WOOW US warehouse', t.usShip ? '+' + tk(t.usShip + t.usTax) : (t.usTax ? '+' + tk(t.usTax) : 'Free'), t.usShip ? (t.taxRate ? 'US delivery + ' + t.taxRate + '% tax' : 'US delivery · 0% tax') : (t.taxRate ? 'Free delivery + ' + t.taxRate + '% tax' : 'Free delivery · 0% tax'))}<span class="ra"></span>${step('✈️', 'WOOW flight', tk(t.arrival), p ? fd(D(p.flight)) : 'Air to Dhaka')}<span class="ra"></span>${step('🏠', 'Your door', p ? fr(D(p.deliverFrom), D(p.deliverTo)) : '', 'Customs cleared')}
   <button class="rq" onclick="showWhy()">Why this way? →</button></div>`;
 }
 function drawGroups(t) {
@@ -687,7 +710,7 @@ function drawPay(d) {
   $('pFull').textContent = tk(t.total); $('pSplit').textContent = tk(t.payNowSplit) + ' now';
   const ml = { bkash: 'bKash', nagad: 'Nagad', card: 'card', bank: 'bank transfer' }[method];
   setMbar(`<div><small>Pay now · ${ml}</small><b>${tk(now)}</b></div><button class="b2" onclick="placeOrder()">Pay ${tk(now)}</button>`);
-  $('pSum').innerHTML = sumHtml(d, `<div class="now"><span>Pay now</span><b>${tk(now)}</b></div>${plan === 'split' ? `<div class="row"><span>On arrival in Dhaka</span><b>${tk(t.shipping)}</b></div>` : ''}
+  $('pSum').innerHTML = sumHtml(d, `<div class="now"><span>Pay now</span><b>${tk(now)}</b></div>${plan === 'split' ? `<div class="row"><span>On arrival in Bangladesh</span><b>${tk(t.arrival)}</b></div>` : ''}
    <button class="btn dk" id="payBtn" style="margin-top:12px" onclick="placeOrder()">Pay ${tk(now)} with ${ml}</button><div class="err" id="pErr"></div>
    <p class="note">✓ Same price as the store website. We re-check it when you press Pay. Rate $1 = ৳${t.rate}. By paying you agree WOOW buys these items for you from US stores. Final shipping is based on actual weight.</p>`);
 }

@@ -198,6 +198,11 @@
   <div class="chat"><a class="wa" id="whyWa" target="_blank" rel="noopener">💬 Ask us</a><button class="gn2" onclick="document.getElementById('whyM').hidden=true">Got it</button></div>
 </div></div>
 <div class="mbar" id="mbar" hidden></div>
+<div class="mdl" id="infoM" hidden onclick="if(event.target===this)this.hidden=true"><div class="mdl-b">
+  <div class="mh"><h3 id="infoT"></h3><button onclick="document.getElementById('infoM').hidden=true" aria-label="Close">✕</button></div>
+  <div class="ib" id="infoB"></div>
+  <div class="chat"><a class="wa" id="infoWa" target="_blank" rel="noopener">💬 Ask us</a><button class="gn2" onclick="document.getElementById('infoM').hidden=true">Got it</button></div>
+</div></div>
 <div class="mdl" id="authM" hidden onclick="if(event.target===this)closeAuth()"><div class="mdl-b auth">
   <div class="mh"><button class="abk" id="aBack" onclick="aStep('start')" aria-label="Back" hidden>←</button><h3 id="aT">Sign in to WOOW</h3><button onclick="closeAuth()" aria-label="Close">✕</button></div>
   <p class="aw" id="aWhy">Sign in to add to cart and pay in Taka.</p>

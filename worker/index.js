@@ -1,6 +1,6 @@
 // WOOW Shop on Cloudflare Workers — API, payments, Zinc purchasing, admin.
 // Website files (public/) are served by Cloudflare Static Assets.
-import { getPricing, savePricing, quote, deliveryPlan, taxRate, shipRule, upcomingFlights, cleanFlights, refreshPlan } from './pricing.js';
+import { getPricing, savePricing, quote, deliveryPlan, taxRate, shipRule, upcomingFlights, cleanFlights, refreshPlan, estimateOne } from './pricing.js';
 import * as zinc from './zinc.js';
 import * as ssl from './sslcommerz.js';
 import * as auth from './auth.js';
@@ -148,7 +148,7 @@ async function priceItems(env, raw, { live = false, liveFreshMs = 0, gate = null
     const p = await zinc.product(env, String(r.url || ''), { live, liveFreshMs, gate });
     if (p && p.available === false) throw new Error(`“${p.title.slice(0, 60)}” is out of stock at ${p.store} right now. Please remove it.`);
     if (!p || !p.priceCents) throw new Error('Price not available for one item. Please remove it and try again.');
-    const it = { url: p.url, retailer: p.retailer, store: p.store, title: p.title, image: p.image, priceCents: p.priceCents, kg: p.kg || null, qty, option: String(r.option || '').slice(0, 60) };
+    const it = { url: p.url, retailer: p.retailer, store: p.store, title: p.title, image: p.image, priceCents: p.priceCents, kg: p.kg || null, dims: p.dims || null, qty, option: String(r.option || '').slice(0, 60) };
     if (Date.now() - (p.shipAt || 0) < 864e5) { if (Number.isFinite(p.shipCents)) it.shipCents = p.shipCents; if (p.thirdParty) it.thirdParty = true; }
     if (p.freeShipping === false) it.freeShipping = false;
     items.push(it);
@@ -188,6 +188,8 @@ async function handle(req, env, ctx) {
   const gateFor = async (pr) => makeGate(env, req, await me(), pr || (await getPricing(env.DB)));
   const secure = url.protocol === 'https:';
   const withCookie = (res, c) => { res.headers.append('Set-Cookie', c); return res; };
+  let _pr; const prc = async () => (_pr ||= await getPricing(env.DB));
+  const withEst = async (L) => { const pr = await prc(); return (L || []).map((x) => x && ({ ...zinc.pub(x), estBdt: estimateOne(x, pr) })); };
 
   if (path === '/admin' || path === '/admin.html' || path === '/admin.js' || path.startsWith('/api/admin')) {
     const ip = req.headers.get('cf-connecting-ip') || '';
@@ -201,7 +203,7 @@ async function handle(req, env, ctx) {
   if (path === '/api/config') {
     const p = await getPricing(env.DB);
     return json({
-      demo: { catalog: !env.ZINC_API_KEY, payments: !ssl.paymentsLive(env) }, me: auth.publicUser(await me()), auth: { google: env.GOOGLE_CLIENT_ID || '', apple: env.APPLE_CLIENT_ID || '', whatsapp: social.waReady(env) }, pickup: PICKUP, homeDeliveryFee: p.homeDeliveryFee || 0, mapsKey: env.GOOGLE_MAPS_KEY || '', rate: p.rate, feePercent: p.feePercent, minFee: p.minFee, kgRate: p.kgRate,
+      demo: { catalog: !env.ZINC_API_KEY, payments: !ssl.paymentsLive(env) }, me: auth.publicUser(await me()), auth: { google: env.GOOGLE_CLIENT_ID || '', apple: env.APPLE_CLIENT_ID || '', whatsapp: social.waReady(env) }, pickup: PICKUP, homeDeliveryFee: p.homeDeliveryFee || 0, mapsKey: env.GOOGLE_MAPS_KEY || '', rate: p.rate, kgRate: p.kgRate, volDivisor: p.volDivisor || 6000,
       defaultKg: p.defaultKg, packagingPercent: p.packagingPercent, usShipping: p.usShipping, warehouseState: p.warehouseState, taxRate: taxRate(p), brokerageList: p.brokerageList, whatsapp: env.WHATSAPP_NUMBER || '8801816369701', rateLockMinutes: p.rateLockMinutes, flights: upcomingFlights(new Date(Date.now() + 6 * 3600e3), p, 12), transitDays: p.transitDays, dhakaDaysAfterFlight: p.dhakaDaysAfterFlight,
       stores: zinc.SEARCH_RETAILERS.map((r) => ({ id: r, name: zinc.retailerName(r) })),
       bank: { name: env.BANK_ACCOUNT_NAME || 'WOOW Global (BD)', number: env.BANK_ACCOUNT_NUMBER || '—', branch: env.BANK_NAME_BRANCH || '—' },
@@ -262,14 +264,14 @@ async function handle(req, env, ctx) {
     // home/store rails (same words every day) are shared for 24 h; customer searches for 6 h
     const results = await zinc.search(env, ctx, q, st, { budgetCents: pr.zincDailyBudgetCents, ttlMs: url.searchParams.get('rail') === '1' ? 864e5 : 6 * 3600e3, gate: await gateFor(pr) });
     if (url.searchParams.get('t') !== '0') ctx.waitUntil(track(env, req, 'search', { q: q || '(popular)', store: st, user: (await me())?.id, extra: { n: results.length } }));
-    return json({ results });
+    return json({ results: await withEst(results) });
   }
 
   if (path === '/api/compare') {
     if (limited(req, 'c', 40, 60000)) return bad('Too many requests, please wait a moment.', 429);
     const d = await zinc.compare(env, ctx, url.searchParams.get('url') || '', await gateFor());
     ctx.waitUntil(track(env, req, 'compare', { url: d.base?.url, store: d.base?.retailer, user: (await me())?.id, extra: { offers: d.offers.length } }));
-    return json({ base: zinc.pub(d.base), offers: d.offers.map(zinc.pub) });
+    return json({ base: d.base && (await withEst([d.base]))[0], offers: await withEst(d.offers) });
   }
 
   if (path === '/api/link' && m === 'POST') {
@@ -279,11 +281,22 @@ async function handle(req, env, ctx) {
     if (!where) return bad('Please paste a full product link (starting with https://).');
     try {
       const p = await zinc.product(env, u, { fresh: true, gate: await gateFor() });
-      if (p && p.priceCents) { ctx.waitUntil(track(env, req, 'link', { url: p.url, store: p.retailer, q: p.title, price: p.priceCents, user: (await me())?.id })); return json({ product: zinc.pub(p) }); }
+      if (p && p.priceCents) { ctx.waitUntil(track(env, req, 'link', { url: p.url, store: p.retailer, q: p.title, price: p.priceCents, user: (await me())?.id })); return json({ product: (await withEst([p]))[0] }); }
     } catch (e) { if (!e.manual) console.log('link lookup failed', e.detail || e.message); if (e.public && !e.detail) return bad(e.message, 429); }
     // Not available automatically (e.g. Costco): offer a price quote from the WOOW team.
     ctx.waitUntil(track(env, req, 'link', { url: u, store: where.retailer, extra: { manual: true } }));
     return json({ manual: true, url: u, retailer: where.retailer, store: where.store });
+  }
+
+  // Product page price breakdown — public, uses saved product data only (never a paid lookup)
+  if (path === '/api/estimate' && m === 'POST') {
+    if (limited(req, 'es', 60, 60000)) return bad('Too many requests, please wait a moment.', 429);
+    const b = await body(req), p = await zinc.recall(env, String(b.url || ''), Infinity);
+    if (!p || !p.priceCents) return bad('Price not available for this product.', 404);
+    const pr = await prc(), qty = Math.max(1, Math.min(9, parseInt(b.qty, 10) || 1));
+    const it = { url: p.url, retailer: p.retailer, store: p.store, title: p.title, priceCents: p.priceCents, kg: p.kg || null, dims: p.dims || null, qty,
+      ...(Date.now() - (p.shipAt || 0) < 864e5 ? { shipCents: p.shipCents, thirdParty: p.thirdParty } : {}), freeShipping: p.freeShipping };
+    return json({ quote: quote([it], pr), delivery: deliveryPlan([p.retailer], pr) });
   }
 
   if (path === '/api/quote' && m === 'POST') {
@@ -366,7 +379,8 @@ async function handle(req, env, ctx) {
   if (path === '/api/feed') {
     const cache = caches.default, key = new Request(url.origin + '/__feed?v=1');
     const hit = await cache.match(key); if (hit) return hit;
-    const d = await feed(env);
+    const d = await feed(env), pr = await prc();
+    for (const k of ['bought', 'popular', 'fresh']) d[k] = d[k].map((x) => ({ ...x, estBdt: estimateOne(x, pr) }));
     const res = new Response(JSON.stringify(d), { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=600' } });
     ctx.waitUntil(cache.put(key, res.clone()));
     return res;
@@ -375,7 +389,8 @@ async function handle(req, env, ctx) {
   // Personal picks: this device's searches/views/cart + people with similar taste + shoppers from the same social app.
   if (path === '/api/foryou' && m === 'POST') {
     if (limited(req, 'fy', 20, 60000)) return json({ items: [] });
-    return json(await forYou(env, await body(req), await me(), String(req.headers.get('x-sid') || '').slice(0, 40)));
+    const d = await forYou(env, await body(req), await me(), String(req.headers.get('x-sid') || '').slice(0, 40));
+    return json({ ...d, items: await withEst(d.items) });
   }
 
   // Browser beacons: product views, add to cart, recently-viewed clicks (no personal data).

@@ -76,7 +76,9 @@ async function setSt(id) {
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 async function loadSet() {
   const S = await api('/api/admin/settings'), p = S.pricing;
-  $('sRate').value = p.rate; $('sFee').value = p.feePercent; $('sMin').value = p.minFee; $('sKg').value = p.kgRate; $('sDef').value = p.defaultKg; $('sLand').value = p.dhakaDaysAfterFlight; $('sPack').value = p.packagingPercent ?? 10; $('sBrk').value = (p.brokerageList || []).join('\n');
+  $('sRate').value = p.rate; $('sFeeLo').value = p.feeLow ?? 7; $('sFeeHi').value = p.feeHigh ?? 5; $('sFeeCut').value = p.feeCut ?? 100; $('sVol').value = p.volDivisor ?? 6000;
+  $('sBrkR').value = (p.brokerRules || []).map((r) => `${r.name} | ${r.words} | ${r.perKg}`).join('\n');
+  $('sVolR').value = (p.volRules || []).map((r) => `${r.name} | ${r.words} | ${r.dims.join(' x ')}`).join('\n'); $('sMin').value = p.minFee; $('sKg').value = p.kgRate; $('sDef').value = p.defaultKg; $('sLand').value = p.dhakaDaysAfterFlight; $('sPack').value = p.packagingPercent ?? 10; $('sBrk').value = (p.brokerageList || []).join('\n');
   $('sWh').value = p.warehouseState || 'DE'; $('sNy').value = p.taxRates?.NY ?? 8.875; $('sDe').value = p.taxRates?.DE ?? 0;
   $('sBud').value = ((p.zincDailyBudgetCents ?? 300) / 100).toFixed(2); $('sFresh').value = p.liveFreshMinutes ?? 15;
   const G = p.guard || {}; $('gBrowse').value = G.browsePer30 ?? 50; $('gPaid').value = G.paidPer30 ?? 50; $('gGuest').value = G.guestPaidPer30 ?? 15; $('gIp').value = G.ipPaidPer30 ?? 100; $('gHours').value = G.blockHours ?? 6; $('sHome').value = p.homeDeliveryFee ?? 0;
@@ -86,7 +88,9 @@ async function loadSet() {
   FL = p.flights || []; drawFlights(S.upcoming); $('sFlApi').innerHTML = S.flightsApi ? '🔗 WOOW main admin can update flights automatically (API on).' : 'Auto update from WOOW main admin: add secret <b>FLIGHTS_API_KEY</b> in Cloudflare, then send flights to <code>/api/flights</code>.';
 }
 async function saveSet() {
-  try { await api('/api/admin/settings', { rate: $('sRate').value, feePercent: $('sFee').value, minFee: $('sMin').value, kgRate: $('sKg').value, defaultKg: $('sDef').value, dhakaDaysAfterFlight: $('sLand').value, packagingPercent: $('sPack').value, brokerageList: $('sBrk').value.split('\n'), flightMonthDays: $('sMD').value.split(/[^0-9]+/).filter(Boolean).map(Number),
+  try { await api('/api/admin/settings', { rate: $('sRate').value, feeLow: $('sFeeLo').value, feeHigh: $('sFeeHi').value, feeCut: $('sFeeCut').value, volDivisor: $('sVol').value,
+    brokerRules: $('sBrkR').value.split('\n').map((l) => l.split('|').map((x) => x.trim())).filter((a) => a.length >= 3).map(([name, words, perKg]) => ({ name, words, perKg })),
+    volRules: $('sVolR').value.split('\n').map((l) => l.split('|').map((x) => x.trim())).filter((a) => a.length >= 3).map(([name, words, dims]) => ({ name, words, dims })), minFee: $('sMin').value, kgRate: $('sKg').value, defaultKg: $('sDef').value, dhakaDaysAfterFlight: $('sLand').value, packagingPercent: $('sPack').value, brokerageList: $('sBrk').value.split('\n'), flightMonthDays: $('sMD').value.split(/[^0-9]+/).filter(Boolean).map(Number),
     warehouseState: $('sWh').value, taxRates: { DE: $('sDe').value, NY: $('sNy').value }, zincDailyBudgetCents: Math.round(Number($('sBud').value) * 100), liveFreshMinutes: $('sFresh').value, homeDeliveryFee: $('sHome').value,
     guard: { browsePer30: $('gBrowse').value, paidPer30: $('gPaid').value, guestPaidPer30: $('gGuest').value, ipPaidPer30: $('gIp').value, blockHours: $('gHours').value },
     usShipping: Object.fromEntries([...$('sShip').children].map((d) => [d.dataset.k, { freeOver: d.querySelector('[data-f=freeOver]').value, fee: d.querySelector('[data-f=fee]').value }])) }); toast('Settings saved'); } catch (e) { toast(e.message); }

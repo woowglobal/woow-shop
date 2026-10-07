@@ -177,7 +177,7 @@ export async function product(env, url, { fresh = false, live = false, liveFresh
     priceCents: livePrice || cached?.priceCents || 0,
     image: d.main_image || (d.images && d.images[0]) || cached?.image || null,
     stars: d.stars ?? cached?.stars ?? null, reviews: d.review_count ?? d.num_reviews ?? cached?.reviews ?? null,
-    kg: weightKg(d) ?? cached?.kg ?? null, available: d.available ?? true,
+    kg: weightKg(d) ?? cached?.kg ?? null, dims: dimsIn(d) ?? cached?.dims ?? null, available: d.available ?? true,
     priceChecked: livePrice ? 'live' : 'search',
   };
   await remember(env, [p]);
@@ -210,7 +210,29 @@ export async function shippingCents(env, p, gate = null) {
   } catch (e) { console.log('offers failed', e.message); return null; }
 }
 
+// Package size in inches from the store data (structured fields, or text like "12 x 13 x 34 inches" / "30 x 20 x 10 cm")
+function dimsIn(d) {
+  const toIn = (v, u) => (/cm|centi/i.test(u || '') ? v / 2.54 : /mm|milli/i.test(u || '') ? v / 25.4 : v);
+  const pd = d.package_dimensions || d.dimensions;
+  if (pd && !Array.isArray(pd) && typeof pd === 'object') {
+    const g = (k) => pd[k] && (typeof pd[k] === 'object' ? toIn(Number(pd[k].amount ?? pd[k].value), pd[k].unit) : Number(pd[k]));
+    const v = [g('length'), g('width'), g('height')];
+    if (v.every((x) => x > 0)) return v.map((x) => Math.round(x * 10) / 10);
+  }
+  const txt = JSON.stringify([d.package_dimensions, d.product_dimensions, d.dimensions, d.specifications, d.product_details, d.details]).slice(0, 20000);
+  const m = txt.match(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)\s*(inches|inch|in\b|"|cm|centimeters|mm)/i);
+  if (m) { const v = [m[1], m[2], m[3]].map((x) => toIn(Number(x), m[4])); if (v.every((x) => x > 0 && x < 120)) return v.map((x) => Math.round(x * 10) / 10); }
+  return null;
+}
 function weightKg(d) {
+  const txt = JSON.stringify([d.package_weight, d.item_weight, d.weight, d.product_details, d.specifications]).slice(0, 20000);
+  const w = txt.match(/(\d+(?:\.\d+)?)\s*(pounds|pound|lbs|lb|ounces|ounce|oz|kilograms|kg|grams|g)\b/i);
+  const fromText = w ? (() => { const v = Number(w[1]), u = w[2].toLowerCase(); return u.startsWith('p') || u.startsWith('lb') ? v * 0.4536 : u.startsWith('o') ? v * 0.02835 : u.startsWith('k') ? v : v / 1000; })() : null;
+  const s = weightKgStructured(d);
+  const v = s ?? fromText;
+  return v && v > 0 && v < 200 ? Math.max(0.1, Math.round(v * 100) / 100) : null;
+}
+function weightKgStructured(d) {
   const list = d.package_dimensions || d.dimensions || [];
   for (const x of Array.isArray(list) ? list : Object.values(list)) {
     const u = (x?.unit || '').toLowerCase();
