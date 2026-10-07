@@ -3,6 +3,22 @@ const $ = (id) => document.getElementById(id);
 const tk = (n) => '৳' + Math.round(n).toLocaleString('en-US');
 const usd = (c) => '$' + (c / 100).toFixed(2);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const STORES = [
+  { id: 'amazon', n: 'Amazon', l: 'a', c: '#FF9900', cats: ['Fashion', 'Electronics', 'Beauty', 'Health', 'Kids', 'Home'], url: 'https://www.amazon.com' },
+  { id: 'walmart', n: 'Walmart', l: 'W', c: '#0071DC', cats: ['Fashion', 'Electronics', 'Beauty', 'Health', 'Kids', 'Home'], url: 'https://www.walmart.com' },
+  { id: 'target', n: 'Target', l: '◎', c: '#CC0000', cats: ['Fashion', 'Electronics', 'Beauty', 'Kids', 'Home'], url: 'https://www.target.com' },
+  { id: 'ebay', n: 'eBay', l: 'e', c: '#E53238', cats: ['Fashion', 'Electronics', 'Home'], url: 'https://www.ebay.com' },
+  { id: 'bestbuy', n: 'Best Buy', l: 'BB', c: '#0046BE', cats: ['Electronics'], url: 'https://www.bestbuy.com' },
+  { id: 'costco', n: 'Costco', l: 'C', c: '#E31837', cats: ['Electronics', 'Health', 'Home'], url: 'https://www.costco.com' },
+  { id: 'macys', n: "Macy's", l: '★', c: '#E21A2C', cats: ['Fashion', 'Beauty', 'Home'], url: 'https://www.macys.com' },
+  { id: 'nike', n: 'Nike', l: '✓', c: '#111111', cats: ['Fashion'], url: 'https://www.nike.com' },
+  { id: 'sephora', n: 'Sephora', l: 'S', c: '#000000', cats: ['Beauty'], url: 'https://www.sephora.com' },
+  { id: 'ulta', n: 'Ulta', l: 'U', c: '#F26B3A', cats: ['Beauty'], url: 'https://www.ulta.com' },
+  { id: 'iherb', n: 'iHerb', l: 'i', c: '#458500', cats: ['Health', 'Beauty'], url: 'https://www.iherb.com' },
+  { id: 'carters', n: "Carter's", l: 'c', c: '#00A3E0', cats: ['Kids', 'Fashion'], url: 'https://www.carters.com' },
+];
+const CAT_WORD = { Fashion: 'clothing', Electronics: 'electronics', Beauty: 'beauty skincare makeup', Health: 'vitamins supplements', Kids: 'kids toys', Home: 'home kitchen' };
+let cat = 'All';
 let CFG = null, RESULTS = [], cur = null, qty = 1, store = 'all', plan = 'full', method = 'bkash', lastQuote = null;
 let CART = load();
 
@@ -30,7 +46,7 @@ const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], MO = ['Jan', 'Feb'
 const D = (s) => new Date(s + 'T12:00:00');
 const fd = (d) => WD[d.getDay()] + ' ' + d.getDate() + ' ' + MO[d.getMonth()];
 const fr = (a, b) => a.getMonth() === b.getMonth() ? WD[a.getDay()] + ' ' + a.getDate() + ' – ' + WD[b.getDay()] + ' ' + b.getDate() + ' ' + MO[b.getMonth()] : fd(a) + ' – ' + fd(b);
-const sName = (r) => (CFG.stores.find((s) => s.id === r) || {}).name || r;
+const sName = (r) => (STORES.find((s) => s.id === r) || CFG.stores.find((s) => s.id === r) || {}).n || (CFG.stores.find((s) => s.id === r) || {}).name || r;
 function planHtml(p) {
   if (!p) return '';
   const multi = p.stores.length > 1;
@@ -61,11 +77,12 @@ function card(p) {
   <div class="bd">${tk(c.total)}</div><div class="us">${usd(p.priceCents)} at ${esc(p.store)}</div><span class="tg">Delivered to Dhaka</span></div></button>`;
 }
 async function doSearch() {
-  const q = $('q').value.trim();
-  $('rt').textContent = q ? `Results for “${q}”` : 'Popular right now';
+  const typed = $('q').value.trim(), q = typed || (cat !== 'All' ? CAT_WORD[cat] : '');
+  const sn = store !== 'all' ? (STORES.find((x) => x.id === store) || {}).n : '';
+  $('rt').textContent = typed ? `Results for “${typed}”${sn ? ' at ' + sn : ''}` : (cat !== 'All' ? cat : 'Popular right now') + (sn ? ' at ' + sn : '');
   $('grid').innerHTML = '<div class="skel"></div>'.repeat(8); $('rn').textContent = 'Searching…';
   try {
-    const d = await api(`/api/search?q=${encodeURIComponent(q)}&store=${store}`);
+    const d = await api(`/api/search?q=${encodeURIComponent(q)}&store=${searchable(store) ? store : 'all'}`);
     RESULTS = d.results;
     $('rn').textContent = RESULTS.length + ' results';
     $('grid').innerHTML = RESULTS.length ? RESULTS.map(card).join('') : '<div class="card empty">No matches. Try another word, or paste a product link.</div>';
@@ -79,14 +96,30 @@ async function doLink() {
 $('grid').addEventListener('click', (e) => { const b = e.target.closest('.pc'); if (b) openItem(RESULTS.find((p) => p.url === b.dataset.u)); });
 $('q').addEventListener('keydown', (e) => { if (e.key === 'Enter') doSearch(); });
 $('lnk').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLink(); });
-$('mode').addEventListener('click', (e) => {
-  const b = e.target.closest('button'); if (!b) return;
-  [...$('mode').children].forEach((x) => x.classList.toggle('on', x === b));
-  $('searchBox').hidden = b.dataset.m !== 'search'; $('linkBox').hidden = b.dataset.m !== 'link';
+function setMode(m) {
+  [...$('mode').children].forEach((x) => x.classList.toggle('on', x.dataset.m === m));
+  $('searchBox').hidden = m !== 'search'; $('linkBox').hidden = m !== 'link';
+  (m === 'link' ? $('lnk') : $('q')).focus({ preventScroll: true });
+}
+$('mode').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setMode(b.dataset.m); });
+const searchable = (id) => CFG.stores.some((s) => s.id === id);
+function drawCats() {
+  $('cats').innerHTML = ['All', ...Object.keys(CAT_WORD)].map((c) => `<button class="cat ${c === cat ? 'on' : ''}" data-c="${c}">${c}</button>`).join('');
+  const L = STORES.filter((s) => cat === 'All' || s.cats.includes(cat));
+  $('tiles').innerHTML = L.map((s) => `<button class="tile ${store === s.id ? 'on' : ''}" data-st="${s.id}"><i style="background:${s.c}">${s.l}</i>${esc(s.n)}${searchable(s.id) ? '' : '<em>paste link</em>'}</button>`).join('');
+}
+$('cats').addEventListener('click', (e) => {
+  const b = e.target.closest('.cat'); if (!b) return;
+  cat = b.dataset.c; if (store !== 'all' && !(STORES.find((s) => s.id === store)?.cats.includes(cat) || cat === 'All')) store = 'all';
+  drawCats(); doSearch();
 });
-$('stores').addEventListener('click', (e) => {
-  const b = e.target.closest('.stb'); if (!b) return;
-  $('stores').querySelectorAll('.stb').forEach((x) => x.classList.toggle('on', x === b)); store = b.dataset.st; doSearch();
+$('tiles').addEventListener('click', (e) => {
+  const b = e.target.closest('.tile'); if (!b) return;
+  const s = STORES.find((x) => x.id === b.dataset.st);
+  if (searchable(s.id)) { store = store === s.id ? 'all' : s.id; drawCats(); doSearch(); document.querySelector('.rh').scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+  // stores without search: open the store, customer pastes the product link back here
+  window.open(s.url, '_blank', 'noopener'); setMode('link');
+  $('hint').innerHTML = `<b>${esc(s.n)}</b> opened in a new tab. Copy the product link from there and paste it above, then tap “Get price”.`;
 });
 
 // ── product ──
@@ -190,7 +223,7 @@ window.addEventListener('popstate', (e) => go(e.state?.v || 'browse'));
 
 (async function init() {
   CFG = await api('/api/config');
-  $('stores').insertAdjacentHTML('beforeend', CFG.stores.map((s) => `<button class="stb" data-st="${s.id}">${esc(s.name)}</button>`).join('') + `<span class="rate"><i></i>Today's rate <b>$1 = ৳${CFG.rate}</b></span>`);
+  $('rateTx').textContent = `$1 = ৳${CFG.rate}`; drawCats();
   if (CFG.demo.zinc || CFG.demo.payments) { $('demoBar').hidden = false; $('demoBar').textContent = 'DEMO MODE · ' + [CFG.demo.zinc && 'sample products', CFG.demo.payments && 'test payments'].filter(Boolean).join(' · ') + ' · add your keys in Cloudflare (Settings → Variables and Secrets) to go live'; }
   try { const c = JSON.parse(localStorage.getItem('woowCustomer') || 'null'); if (c) { $('cName').value = c.name || ''; $('cPhone').value = c.phone || ''; $('cEmail').value = c.email || ''; $('cCity').value = c.city || 'Dhaka'; $('cAddr').value = c.address || ''; } } catch {}
   save(); doSearch();

@@ -22,13 +22,20 @@
 <main>
 <!-- BROWSE -->
 <section class="v on" id="v-browse">
-  <h1>Shop US stores in Taka</h1>
-  <p class="lead">Search Amazon, Walmart, Target and more. Pay with bKash, Nagad or bank. We buy it and fly it to you.</p>
-  <div class="card sbx">
-    <div class="tabs" id="mode"><button class="on" data-m="search">🔍 Search stores</button><button data-m="link">🔗 Paste a link</button></div>
-    <div class="sq" id="searchBox"><label>🔍<input id="q" placeholder="What are you looking for? e.g. headphones" autocomplete="off"></label><button onclick="doSearch()">Search</button></div>
+  <div class="bfm">
+    <div class="svc">
+      <a class="sv on" href="/"><span class="si">🛍️</span><b>Buy For Me</b><small>We buy it for you</small></a>
+      <a class="sv" href="https://woowglobal.com" target="_blank" rel="noopener"><span class="si">📦</span><b>Ship For Me</b><small>Free US address</small></a>
+      <a class="sv" href="https://woowglobal.com" target="_blank" rel="noopener"><span class="si">🚚</span><b>Send Parcel</b><small>Compare &amp; ship</small></a>
+      <a class="sv" href="/order"><span class="si">🌍</span><b>Track</b><small>Global tracking</small></a>
+    </div>
+    <div class="tabs" id="mode"><button data-m="link">🔗 Paste a link</button><button class="on" data-m="search">🏬 Browse stores</button></div>
+    <div class="sq" id="searchBox"><label>🔍<input id="q" placeholder="What are you looking for? e.g. Nike shoes" autocomplete="off"></label><button onclick="doSearch()">Search</button></div>
     <div class="sq" id="linkBox" hidden><label>🔗<input id="lnk" placeholder="Paste a product link from Amazon, Walmart, Target…" autocomplete="off"></label><button onclick="doLink()">Get price</button></div>
-    <div class="strow" id="stores"><small>Shop at</small><button class="stb on" data-st="all">All stores</button></div>
+    <div class="cats" id="cats"></div>
+    <div class="tiles" id="tiles"></div>
+    <p class="hint" id="hint">Tap a store to see its products. For other stores, copy the product link and paste it in “Paste a link”.</p>
+    <div class="rate2"><i></i>Today's rate <b id="rateTx"></b> · prices shown delivered to Dhaka</div>
   </div>
   <div class="rh"><b id="rt">Popular right now</b><small id="rn"></small></div>
   <div class="grid" id="grid"></div>
