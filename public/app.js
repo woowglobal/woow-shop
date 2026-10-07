@@ -369,9 +369,9 @@ function addCart(show) {
 }
 
 // ── cart + checkout (server quote) ──
-async function getQuote(ship) {
+async function getQuote(checkout) {
   if (!CART.length) return null;
-  const d = await api('/api/quote', { ship: ship ? 1 : 0, items: CART.map(({ url, qty, option }) => ({ url, qty, option })) });
+  const d = await api('/api/quote', { ship: 1, checkout: checkout ? 1 : 0, items: CART.map(({ url, qty, option }) => ({ url, qty, option })) });
   lastQuote = d; return d;
 }
 function sumHtml(d, btn) {
@@ -409,7 +409,12 @@ function drawGroups(t) {
     const first = G[r][0][0], st = t?.stores?.find((s) => s.retailer === r);
     const sub = G[r].reduce((a, [x]) => a + x.priceCents * x.qty, 0), s = st ? { c: st.shipUsd * 100, free: !st.shipUsd, need: st.needUsd * 100, r: { freeOver: st.freeOver } } : usShip(r, sub);
     const pct = Math.min(100, Math.round(sub / (s.r.freeOver * 100) * 100));
-    const bar = s.free ? `<div class="fs ok">✓ Free US delivery to our warehouse</div>` : `<div class="fs"><span>Add <b>${usd(s.need)}</b> from ${esc(first.store)} for free US delivery</span><i><u style="width:${pct}%"></u></i></div>`;
+    const sell = st?.sellerShipUsd ? `<div class="fs">+ ${usd(st.sellerShipUsd * 100)} seller's own US shipping <small>(sold by a marketplace seller)</small></div>` : '';
+    const storePart = st ? st.shipUsd - (st.sellerShipUsd || 0) : null;
+    const bar = (st && st.sellerShipUsd && !(storePart > 0) && !st.needUsd) ? sell
+      : (s.free || (st && !st.needUsd && !(storePart > 0))) ? `<div class="fs ok">✓ Free US delivery to our warehouse</div>${sell}`
+      : s.need > 0 ? `<div class="fs"><span>Add <b>${usd(s.need)}</b> from ${esc(first.store)} for free US delivery</span><i><u style="width:${pct}%"></u></i></div>${sell}`
+      : `<div class="fs">US delivery to our warehouse <b>${usd(storePart * 100)}</b></div>${sell}`;
     return `<div class="card sg"><h4><span class="chip" style="position:static">${esc(first.store)}</span>${G[r].length} item${G[r].length > 1 ? 's' : ''}<small>${usd(sub)}</small></h4>${bar}` +
     G[r].map(([x, i]) => { const sl = storeLink(x); return `<div class="ci"><img src="${esc(x.image || '')}" alt=""><div><b>${esc(x.title)}</b><small>${x.option ? esc(x.option) + ' · ' : ''}Qty ${x.qty}</small>
       <div class="tr">${sl ? `<a href="${esc(sl)}" target="_blank" rel="noopener">${esc(x.store)} ${usd(x.priceCents)} ↗</a>` : `<span>${esc(x.store)} ${usd(x.priceCents)}</span>`}<span class="eq">=</span><span>WOOW ${usd(x.priceCents)}</span><span class="ok">✓ Same price</span></div>

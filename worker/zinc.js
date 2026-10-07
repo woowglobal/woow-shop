@@ -181,19 +181,23 @@ export async function product(env, url, { fresh = false, live = false, liveFresh
 export const OFFER_RETAILERS = ['amazon', 'walmart', 'bestbuy'];
 export async function shippingCents(env, p) {
   if (!p || !OFFER_RETAILERS.includes(p.retailer)) return null;
-  if (Number.isFinite(p.shipCents) && Date.now() - (p.shipAt || 0) < 864e5) return p.shipCents;
+  if (Number.isFinite(p.shipCents) && Date.now() - (p.shipAt || 0) < 864e5) return { cents: p.shipCents, thirdParty: !!p.thirdParty };
   if (!env.ZINC_API_KEY) return null;
   const pu = parseUrl(p.url); if (!pu?.id) return null;
   try {
     const d = await zinc(env, `/products/${encodeURIComponent(pu.id)}/offers?retailer=${pu.retailer}`);
     const offers = (d.offers || []).filter((o) => o.available !== false && (!o.condition || /new/i.test(o.condition)));
     if (!offers.length) return null;
+    // the offer WOOW will actually buy = the one at the price the customer saw
     const pick = offers.reduce((b, o) => (Math.abs((o.price || 0) - p.priceCents) < Math.abs((b.price || 0) - p.priceCents) ? o : b));
     const opts = (pick.shipping_options || []).map((x) => Number(x.price)).filter((x) => Number.isFinite(x));
-    if (!opts.length) return null;
-    const cents = Math.min(...opts);
-    await env.DB.prepare('UPDATE products SET data=? WHERE url=?').bind(JSON.stringify({ ...p, shipCents: cents, shipAt: Date.now() }), p.url).run();
-    return cents;
+    // sold by a marketplace seller (not the store itself, not store-fulfilled): store's "free over $35" does NOT apply
+    const thirdParty = !(pick.seller?.first_party) && !pick.marketplace_fulfilled;
+    const cents = opts.length ? Math.min(...opts) : null;
+    if (cents === null && !thirdParty) return null;
+    const rec = { ...p, shipCents: cents ?? undefined, thirdParty, shipAt: Date.now() };
+    await env.DB.prepare('UPDATE products SET data=? WHERE url=?').bind(JSON.stringify(rec), p.url).run();
+    return { cents, thirdParty };
   } catch (e) { console.log('offers failed', e.message); return null; }
 }
 

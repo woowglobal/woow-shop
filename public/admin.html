@@ -47,6 +47,10 @@ td{padding:12px;border-bottom:1px solid #F2F2F5;vertical-align:top}tr.r{cursor:p
 @media (max-width:900px){.ef{grid-template-columns:1fr 1fr}}
 @media (max-width:900px){.kp{grid-template-columns:1fr 1fr}.g2{grid-template-columns:minmax(0,1fr)}}
 @media (max-width:760px){.set{grid-template-columns:1fr 1fr}.hide-m{display:none}}
+.qb{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}.qb:empty{display:none}
+.qb a,.qb button{display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 14px;border-radius:12px;border:0;font-weight:800;font-size:13px;text-decoration:none;cursor:pointer;color:#fff}
+.qb small{font-weight:600;opacity:.85}.qb .am{background:#131921}.qb .am i{color:#FF9900;font-style:normal}.qb .wm{background:#0071DC}.qb .wm i{color:#FFC220;font-style:normal}.qb .ot{background:#F2F2F7;color:#1D1D1F}
+.ps .zn{background:#2E2E31;color:#FFD400}
 /* phones & tablets */
 .tabs2{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding-bottom:2px}.tabs2::-webkit-scrollbar{display:none}.tabs2 button{flex:none;white-space:nowrap}
 #t-dash .card,#t-money .card,#t-buy .card{overflow-x:auto}
@@ -81,6 +85,7 @@ td{padding:12px;border-bottom:1px solid #F2F2F5;vertical-align:top}tr.r{cursor:p
   <section id="t-buy" hidden>
     <div class="dh"><div class="seg" id="bAll"><button class="on" data-a="0">To buy now</button><button data-a="1">All paid orders</button></div>
       <input class="inp" id="bQ" placeholder="Search order, customer, product" style="max-width:260px"><button class="hb" style="background:#fff;color:#1D1D1F;border:1.5px solid #E5E5EA" onclick="csv()">⬇ Export CSV</button><button class="hb dk" onclick="loadBuy()">Refresh</button></div>
+    <div class="qb" id="qBuy"></div>
     <p class="lead2">Customers already paid — buy each item from the store now. Mark it <b>Bought</b> or <b>Can't buy</b>: GENI updates the customer's order page.</p>
     <div class="card" style="overflow:auto"><table class="ps"><thead><tr><th>Waiting</th><th>Order · customer</th><th>Product</th><th>Qty</th><th>Price</th><th>Status</th><th></th></tr></thead><tbody id="bRows"></tbody></table></div>
   </section>

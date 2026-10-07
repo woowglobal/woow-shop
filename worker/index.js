@@ -141,24 +141,22 @@ async function priceItems(env, raw, { live = false, liveFreshMs = 0 } = {}) {
     if (p && p.available === false) throw new Error(`“${p.title.slice(0, 60)}” is out of stock at ${p.store} right now. Please remove it.`);
     if (!p || !p.priceCents) throw new Error('Price not available for one item. Please remove it and try again.');
     const it = { url: p.url, retailer: p.retailer, store: p.store, title: p.title, image: p.image, priceCents: p.priceCents, kg: p.kg || null, qty, option: String(r.option || '').slice(0, 60) };
-    if (Number.isFinite(p.shipCents) && Date.now() - (p.shipAt || 0) < 864e5) it.shipCents = p.shipCents;
+    if (Date.now() - (p.shipAt || 0) < 864e5) { if (Number.isFinite(p.shipCents)) it.shipCents = p.shipCents; if (p.thirdParty) it.thirdParty = true; }
+    if (p.freeShipping === false) it.freeShipping = false;
     items.push(it);
   }
   return items;
 }
-// Real US delivery cost from Zinc offers — only for stores still under their free-delivery limit,
-// at most 3 lookups per cart, and saved 24 h (so Pay doesn't pay again).
-async function addUsShipping(env, items, pr) {
-  const sub = {};
-  items.forEach((i) => { sub[i.retailer] = (sub[i.retailer] || 0) + i.priceCents * i.qty; });
+// Real US delivery cost + seller type from Zinc offers for every Amazon/Walmart/Best Buy item (saved 24 h),
+// so a marketplace seller's own shipping is never missed — WOOW can't charge the customer later.
+async function addUsShipping(env, items) {
   let n = 0;
   for (const it of items) {
-    if (Number.isFinite(it.shipCents) || n >= 3 || !zinc.OFFER_RETAILERS.includes(it.retailer)) continue;
-    if (sub[it.retailer] >= shipRule(pr, it.retailer).freeOver * 100) continue;
+    if (Number.isFinite(it.shipCents) || it.thirdParty || n >= 10 || !zinc.OFFER_RETAILERS.includes(it.retailer)) continue;
     n++;
     const rec = await zinc.recall(env, it.url, Infinity);
-    const c = await zinc.shippingCents(env, rec || it);
-    if (Number.isFinite(c)) it.shipCents = c;
+    const r = await zinc.shippingCents(env, rec || it);
+    if (r) { if (Number.isFinite(r.cents)) it.shipCents = r.cents; if (r.thirdParty) it.thirdParty = true; }
   }
   return items;
 }
@@ -227,7 +225,8 @@ async function handle(req, env, ctx) {
 
   if (path === '/api/quote' && m === 'POST') {
     const b = await body(req), pr = await getPricing(env.DB), items = await priceItems(env, b.items);
-    if (b.ship) { await addUsShipping(env, items, pr); ctx.waitUntil(track(env, req, 'checkout', { price: items.reduce((a, i) => a + i.priceCents * i.qty, 0), extra: { items: items.length } })); }
+    if (b.ship) await addUsShipping(env, items);
+    if (b.checkout) { ctx.waitUntil(track(env, req, 'checkout', { price: items.reduce((a, i) => a + i.priceCents * i.qty, 0), extra: { items: items.length } })); }
     return json({ quote: quote(items, pr), delivery: deliveryPlan(items.map((i) => i.retailer), pr) });
   }
 
@@ -241,7 +240,7 @@ async function handle(req, env, ctx) {
     if (!['bkash', 'nagad', 'card', 'bank'].includes(method)) return bad('Invalid payment method.');
     // Fresh price check from the store right now, before taking any money.
     const pr = await getPricing(env.DB), items = await priceItems(env, b.items, { live: true, liveFreshMs: (pr.liveFreshMinutes ?? 15) * 60000 });
-    await addUsShipping(env, items, pr);
+    await addUsShipping(env, items);
     const q = quote(items, pr), due = plan === 'full' ? q.total : q.payNowSplit;
     const expected = Number(b.expectedTotal);
     if (expected && Math.abs(expected - q.total) >= 1) {

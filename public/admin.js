@@ -189,6 +189,26 @@ function waText(r, kind) {
     : `Hi ${n}, GENI from WOOW here about your order ${r.o.id}.`;
 }
 const wa = (r, k) => `https://wa.me/88${r.o.phone}?text=${encodeURIComponent(waText(r, k))}`;
+// Quick buy: put every open item into WOOW's own Amazon / Walmart cart in one click (purchaser is logged in there),
+// then pay with WOOW's card and ship to the WOOW warehouse address saved in that account.
+const asin = (u) => (String(u).match(/\/(?:dp|gp\/product)\/([A-Z0-9]{10})/i) || [])[1];
+const wmId = (u) => (String(u).match(/walmart\.com\/ip\/(?:[^/]+\/)?(\d+)/) || [])[1];
+const ZINC_OK = ['amazon', 'walmart'];
+function quickBuy(L) {
+  const open = L.filter((r) => !r.it.buy && !(r.o.zinc?.groups || []).some((g) => g.retailer === r.it.retailer && g.id));
+  const by = {}; open.forEach((r) => (by[r.it.retailer] ||= []).push(r));
+  const out = [];
+  const qty = (rs, idf) => { const m = new Map(); rs.forEach((r) => { const id = idf(r.it.url); if (id) m.set(id, (m.get(id) || 0) + r.it.qty); }); return [...m]; };
+  if (by.amazon) { const q = qty(by.amazon, asin); if (q.length) out.push(`<a class="am" target="_blank" rel="noopener" href="https://www.amazon.com/gp/aws/cart/add.html?${q.map(([id, n], i) => `ASIN.${i + 1}=${id}&Quantity.${i + 1}=${n}`).join('&')}">🛒 Add all to <i>Amazon</i> cart <small>${q.length} product${q.length > 1 ? 's' : ''}</small></a>`); }
+  if (by.walmart) { const q = qty(by.walmart, wmId); if (q.length) out.push(`<a class="wm" target="_blank" rel="noopener" href="https://affil.walmart.com/cart/addToCart?items=${q.map(([id, n]) => id + '|' + n).join(',')}">🛒 Add all to <i>Walmart</i> cart <small>${q.length} product${q.length > 1 ? 's' : ''}</small></a>`); }
+  Object.entries(by).filter(([k]) => !['amazon', 'walmart'].includes(k)).forEach(([k, rs]) => out.push(`<button class="ot" onclick='openAll(${JSON.stringify(rs.map((r) => r.it.url))})'>↗ Open ${esc(rs[0].it.store)} items <small>${rs.length}</small></button>`));
+  $('qBuy').innerHTML = out.join('');
+}
+function openAll(urls) { urls.forEach((u) => window.open(u, '_blank', 'noopener')); }
+async function zincBuy(id) {
+  if (!confirm('Place this order automatically with Zinc now? (Zinc buys and ships to the WOOW warehouse)')) return;
+  try { await api(`/api/admin/orders/${id}/place`, {}); toast('Sent to Zinc — status updates every 30 min'); loadBuy(); } catch (e) { toast(e.message); }
+}
 function drawBuy() {
   const q = $('bQ').value.trim().toLowerCase();
   const L = BUY.filter((r) => !q || (r.o.id + ' ' + r.o.customer.name + ' ' + r.o.phone + ' ' + r.it.title + ' ' + r.it.store).toLowerCase().includes(q));
@@ -198,10 +218,10 @@ function drawBuy() {
     return `<tr><td class="w ${!b && mins > 60 ? 'late' : ''}">${b ? '—' : ago(r.paidAt)}</td>
     <td><b>${r.o.id}</b><br>${esc(r.o.customer.name)} · ${esc(r.o.phone)}<br><small style="color:#86868B">${esc(r.o.customer.city)}${z.city ? ' · seen in ' + esc(z.city) : ''}</small></td>
     <td style="min-width:260px"><img src="${esc(r.it.image || '')}" alt=""><a href="${esc(r.it.url)}" target="_blank" rel="noopener">${esc(r.it.title.slice(0, 80))} ↗</a><br><small style="color:#86868B">${esc(r.it.store)}${r.it.option ? ' · ' + esc(r.it.option) : ''}</small></td>
-    <td><b>${r.it.qty}</b></td><td>$${(r.it.priceCents / 100).toFixed(2)}<br><small style="color:#86868B">line $${(r.it.priceCents * r.it.qty / 100).toFixed(2)}</small></td><td>${st}</td>
-    <td><div class="acts">${b ? `<button class="un" onclick="mark(${k},'pending')">Undo</button>` : `<button class="ok" onclick="mark(${k},'bought')">✓ Bought</button><button class="no" onclick="mark(${k},'cant')">✕ Can't</button>`}<a class="wa" target="_blank" rel="noopener" href="${wa(r, b?.status)}">WhatsApp</a></div></td></tr>`;
+    <td><b>${r.it.qty}</b></td><td>$${(r.it.priceCents / 100).toFixed(2)}<br><small style="color:#86868B">line $${(r.it.priceCents * r.it.qty / 100).toFixed(2)}</small>${(() => { const st = (r.o.totals?.stores || []).find((x) => x.retailer === r.it.retailer); const first = r.o.items.findIndex((x) => x.retailer === r.it.retailer) === r.i; return st && first ? `<br><small style="color:${st.shipUsd ? '#B25E00' : '#248A3D'}">${st.shipUsd ? 'US ship paid $' + st.shipUsd.toFixed(2) : 'Free US ship'}${st.sellerShipUsd ? ' (seller)' : ''}</small>` : ''; })()}</td><td>${st}</td>
+    <td><div class="acts">${b ? `<button class="un" onclick="mark(${k},'pending')">Undo</button>` : `<button class="ok" onclick="mark(${k},'bought')">✓ Bought</button><button class="no" onclick="mark(${k},'cant')">✕ Can't</button>${ZINC_OK.includes(r.it.retailer) && r.o.status === 'paid' && !(r.o.zinc?.groups || []).length ? `<button class="zn" onclick="zincBuy('${r.o.id}')">⚡ Zinc</button>` : ''}`}<a class="wa" target="_blank" rel="noopener" href="${wa(r, b?.status)}">WhatsApp</a></div></td></tr>`;
   }).join('') : '<tr><td colspan="7" style="text-align:center;color:#86868B;padding:30px">Nothing to buy right now 🎉</td></tr>';
-  window._L = L;
+  window._L = L; quickBuy(L);
 }
 async function mark(k, status) {
   const r = window._L[k]; const b = { i: r.i, status };

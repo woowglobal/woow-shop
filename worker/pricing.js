@@ -70,18 +70,30 @@ export function quote(items, p) {
     const lineUsd = (it.priceCents / 100) * it.qty;
     usd += lineUsd;
     kg += (it.kg || p.defaultKg) * it.qty;
-    (groups[it.retailer] ||= { retailer: it.retailer, store: it.store, subCents: 0, zincShip: [] });
-    groups[it.retailer].subCents += it.priceCents * it.qty;
-    if (Number.isFinite(it.shipCents)) groups[it.retailer].zincShip.push(it.shipCents);
+    const g = (groups[it.retailer] ||= { retailer: it.retailer, store: it.store, subCents: 0, firstCents: 0, zincShip: [], sellerCents: 0, noFree: false });
+    g.subCents += it.priceCents * it.qty;
+    if (it.thirdParty) {
+      // marketplace seller: always pays the seller's own shipping (per unit, safe side), never the store's free-over-$35
+      g.sellerCents += (Number.isFinite(it.shipCents) ? it.shipCents : Math.round(shipRule(p, it.retailer).fee * 100)) * it.qty;
+    } else {
+      g.firstCents += it.priceCents * it.qty;
+      if (Number.isFinite(it.shipCents)) g.zincShip.push(it.shipCents);
+      if (it.freeShipping === false && !Number.isFinite(it.shipCents)) g.noFree = true; // store says: not free-shipping eligible
+    }
     return { ...it, lineUsd: Math.round(lineUsd * 100) / 100, lineBdt: Math.round(lineUsd * p.rate) };
   });
   const stores = Object.values(groups).map((g) => {
     const r = shipRule(p, g.retailer), limit = Math.round(r.freeOver * 100);
-    let shipCents, source;
-    if (limit && g.subCents >= limit) { shipCents = 0; source = 'free_over'; }
-    else if (g.zincShip.length) { shipCents = Math.max(...g.zincShip); source = 'zinc'; }
-    else { shipCents = Math.round(r.fee * 100); source = 'rule'; }
-    return { retailer: g.retailer, store: g.store, subUsd: g.subCents / 100, shipUsd: shipCents / 100, freeOver: r.freeOver, needUsd: shipCents ? Math.max(0, Math.round(limit - g.subCents) / 100) : 0, source };
+    let storeShip = 0, source = 'none';
+    if (g.firstCents) {
+      if (limit && g.firstCents >= limit && !g.noFree) { storeShip = 0; source = 'free_over'; }
+      else if (g.zincShip.length) { storeShip = Math.max(...g.zincShip); source = 'zinc'; }
+      else { storeShip = Math.round(r.fee * 100); source = 'rule'; }
+    }
+    const shipCents = storeShip + g.sellerCents;
+    if (g.sellerCents) source = source === 'none' ? 'seller' : source + '+seller';
+    return { retailer: g.retailer, store: g.store, subUsd: g.subCents / 100, shipUsd: shipCents / 100, sellerShipUsd: g.sellerCents / 100, freeOver: r.freeOver,
+      needUsd: storeShip && !g.noFree ? Math.max(0, Math.round(limit - g.firstCents) / 100) : 0, source };
   });
   const usShipUsd = Math.round(stores.reduce((a, s) => a + s.shipUsd, 0) * 100) / 100;
   const tr = taxRate(p), taxUsd = Math.round((usd + usShipUsd) * tr) / 100;
