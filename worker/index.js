@@ -109,12 +109,13 @@ async function refreshZinc(env, order) {
   return updateOrder(env, order.id, { zinc: { groups }, status });
 }
 
-async function priceItems(env, raw) {
+async function priceItems(env, raw, { live = false } = {}) {
   if (!Array.isArray(raw) || !raw.length || raw.length > 20) throw new Error('Your cart is empty or too big.');
   const items = [];
   for (const r of raw) {
     const qty = Math.max(1, Math.min(9, parseInt(r.qty, 10) || 1));
-    const p = await zinc.product(env, String(r.url || ''));
+    const p = await zinc.product(env, String(r.url || ''), { live });
+    if (p && p.available === false) throw new Error(`“${p.title.slice(0, 60)}” is out of stock at ${p.store} right now. Please remove it.`);
     if (!p || !p.priceCents) throw new Error('Price not available for one item. Please remove it and try again.');
     items.push({ url: p.url, retailer: p.retailer, store: p.store, title: p.title, image: p.image, priceCents: p.priceCents, kg: p.kg || null, qty, option: String(r.option || '').slice(0, 60) });
   }
@@ -177,7 +178,12 @@ async function handle(req, env, ctx) {
     if (!c.address || String(c.address).trim().length < 6) return bad('Please enter your delivery address.');
     if (!['full', 'split'].includes(plan)) return bad('Invalid payment plan.');
     if (!['bkash', 'nagad', 'card', 'bank'].includes(method)) return bad('Invalid payment method.');
-    const pr = await getPricing(env.DB), items = await priceItems(env, b.items), q = quote(items, pr), due = plan === 'full' ? q.total : q.payNowSplit;
+    // Fresh price check from the store right now, before taking any money.
+    const pr = await getPricing(env.DB), items = await priceItems(env, b.items, { live: true }), q = quote(items, pr), due = plan === 'full' ? q.total : q.payNowSplit;
+    const expected = Number(b.expectedTotal);
+    if (expected && Math.abs(expected - q.total) >= 1) {
+      return json({ error: 'price_changed', message: `The store price changed. New total: ৳${q.total.toLocaleString('en-US')} (was ৳${Math.round(expected).toLocaleString('en-US')}). Please check and press Pay again.`, quote: q, delivery: deliveryPlan(items.map((i) => i.retailer), pr) }, 409);
+    }
     const id = await newOrderId(env), t = nowIso();
     const customer = { name: String(c.name).trim().slice(0, 80), phone, email: String(c.email || '').trim().slice(0, 120), address: String(c.address).trim().slice(0, 300), city: String(c.city || 'Dhaka').trim().slice(0, 60) };
     await env.DB.prepare('INSERT INTO orders (id,created_at,updated_at,status,phone,customer,items,totals,plan,method,amount_due,delivery) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')

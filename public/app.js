@@ -154,21 +154,29 @@ function drawPay(d) {
   const ml = { bkash: 'bKash', nagad: 'Nagad', card: 'card', bank: 'bank transfer' }[method];
   $('pSum').innerHTML = sumHtml(d, `<div class="now"><span>Pay now</span><b>${tk(now)}</b></div>${plan === 'split' ? `<div class="row"><span>On arrival in Dhaka</span><b>${tk(t.shipping)}</b></div>` : ''}
    <button class="btn dk" id="payBtn" style="margin-top:12px" onclick="placeOrder()">Pay ${tk(now)} with ${ml}</button><div class="err" id="pErr"></div>
-   <p class="note">Rate $1 = ৳${t.rate}. By paying you agree WOOW buys these items for you from US stores. Final shipping is based on actual weight.</p>`);
+   <p class="note">✓ We re-check the store price when you press Pay. Rate $1 = ৳${t.rate}. By paying you agree WOOW buys these items for you from US stores. Final shipping is based on actual weight.</p>`);
 }
 $('plan').addEventListener('click', (e) => { const b = e.target.closest('.op'); if (!b) return; $('plan').querySelectorAll('.op').forEach((x) => x.classList.toggle('on', x === b)); plan = b.dataset.v; if (lastQuote) drawPay(lastQuote); });
 $('pm').addEventListener('click', (e) => { const b = e.target.closest('.op'); if (!b) return; $('pm').querySelectorAll('.op').forEach((x) => x.classList.toggle('on', x === b)); method = b.dataset.m; if (lastQuote) drawPay(lastQuote); });
 async function placeOrder() {
-  const btn = $('payBtn'), err = $('pErr'); err.style.display = 'none'; btn.disabled = true; btn.textContent = 'Please wait…';
+  const btn = $('payBtn'); $('pErr').style.display = 'none'; btn.disabled = true; btn.textContent = 'Checking today\'s store price…';
   const customer = { name: $('cName').value, phone: $('cPhone').value, email: $('cEmail').value, city: $('cCity').value, address: $('cAddr').value };
   try { localStorage.setItem('woowCustomer', JSON.stringify(customer)); } catch {}
-  try {
-    const d = await api('/api/orders', { customer, plan, method, items: CART.map(({ url, qty, option }) => ({ url, qty, option })) });
-    CART = []; save();
-    const phone = encodeURIComponent(customer.phone.replace(/\D/g, '').replace(/^880/, '0'));
-    if (d.next.type === 'redirect') location.href = d.next.url;
-    else location.href = `/order?id=${d.orderId}&phone=${phone}&bank=1`;
-  } catch (e) { err.textContent = e.message; err.style.display = 'block'; btn.disabled = false; drawPay(lastQuote); $('pErr').textContent = e.message; $('pErr').style.display = 'block'; }
+  const r = await fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customer, plan, method, expectedTotal: lastQuote?.quote?.total, items: CART.map(({ url, qty, option }) => ({ url, qty, option })) }) });
+  const d = await r.json().catch(() => ({}));
+  if (r.status === 409 && d.error === 'price_changed') {
+    // store price moved: show the new price, customer presses Pay again
+    lastQuote = { quote: d.quote, delivery: d.delivery };
+    d.quote.lines.forEach((l) => CART.filter((c) => c.url === l.url).forEach((c) => { c.priceCents = l.priceCents; c.title = l.title; }));
+    save(); drawPay(lastQuote);
+    const e = $('pErr'); e.className = 'err warn'; e.textContent = d.message; e.style.display = 'block';
+    return;
+  }
+  if (!r.ok) { drawPay(lastQuote); $('pErr').textContent = d.error || 'Something went wrong'; $('pErr').style.display = 'block'; return; }
+  CART = []; save();
+  const phone = encodeURIComponent(customer.phone.replace(/\D/g, '').replace(/^880/, '0'));
+  if (d.next.type === 'redirect') location.href = d.next.url;
+  else location.href = `/order?id=${d.orderId}&phone=${phone}&bank=1`;
 }
 
 // ── navigation ──

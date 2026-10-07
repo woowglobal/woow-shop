@@ -55,24 +55,46 @@ export function parseUrl(url) {
     if (/amazon\.com$/.test(h) && (m = u.pathname.match(/\/(?:dp|gp\/product)\/([A-Z0-9]{10})/i))) return { retailer: 'amazon', id: m[1], url: `https://www.amazon.com/dp/${m[1]}` };
     if (/walmart\.com$/.test(h) && (m = u.pathname.match(/\/ip\/(?:[^/]+\/)?(\d+)/))) return { retailer: 'walmart', id: m[1], url: `https://www.walmart.com/ip/${m[1]}` };
     if (/target\.com$/.test(h) && (m = u.pathname.match(/A-(\d+)/))) return { retailer: 'target', id: m[1], url: u.origin + u.pathname };
+    if (/macys\.com$/.test(h) && u.searchParams.get('ID')) return { retailer: 'macys', id: u.searchParams.get('ID'), url: u.origin + u.pathname + '?ID=' + u.searchParams.get('ID') };
+    if (/costco\.com$/.test(h) && (m = u.pathname.match(/\.product\.(\d+)\.html/))) return { retailer: 'costco', id: m[1], url: u.origin + u.pathname };
+    if (/bestbuy\.com$/.test(h) && (m = u.pathname.match(/\/([^/]+)\.p$/))) return { retailer: 'bestbuy', id: m[1], url: u.origin + u.pathname };
     if (/ebay\.com$/.test(h) && (m = u.pathname.match(/\/itm\/(?:[^/]+\/)?(\d+)/))) return { retailer: 'ebay', id: m[1], url: `https://www.ebay.com/itm/${m[1]}` };
     return { retailer: null, id: null, url: u.toString() };
   } catch { return null; }
 }
 
-/** Product by URL (pasted link, or price check at checkout). */
-export async function product(env, url, { fresh = false } = {}) {
-  const known = await recall(env, url, fresh ? 10 * 60 * 1000 : CACHE_SEC * 1000 * 4);
-  if (known) return known;
-  if (!env.ZINC_API_KEY) { const d = demoCatalog().find((p) => p.url === url); if (d) await remember(env, [d]); return d || null; }
+/** Product by URL (pasted link, or price check at checkout).
+ *  live=true → ask Zinc for today's price right now (used when the customer presses Pay). */
+export async function product(env, url, { fresh = false, live = false } = {}) {
+  if (!env.ZINC_API_KEY) { const d = demoCatalog().find((p) => p.url === url) || (await recall(env, url, Infinity)); if (d) await remember(env, [d]); return d || null; }
+  if (!live) {
+    const known = await recall(env, url, fresh ? 10 * 60 * 1000 : CACHE_SEC * 1000 * 4);
+    if (known) return known;
+  }
+  const cached = await recall(env, url, Infinity);
   const pu = parseUrl(url);
-  if (!pu || !pu.retailer || !pu.id) throw new Error('This store link is not supported yet. Our team can buy it for you by hand.');
-  const d = await zinc(env, `/products/${encodeURIComponent(pu.id)}?retailer=${pu.retailer}`);
-  if (d.status && d.status !== 'completed') throw new Error('Could not read this product right now. Try again in a minute.');
+  if (!pu || !pu.retailer || !pu.id) {
+    if (cached && live) return { ...cached, priceChecked: 'search' };
+    throw new Error('This store link is not supported yet. Our team can buy it for you by hand.');
+  }
+  let d;
+  try {
+    d = await zinc(env, `/products/${encodeURIComponent(pu.id)}?retailer=${pu.retailer}&max_age=600`);
+    if (d.status && d.status !== 'completed') throw new Error('Could not read this product right now. Try again in a minute.');
+  } catch (e) {
+    if (cached && live) return { ...cached, priceChecked: 'search' }; // keep the search price if the live check fails
+    throw e;
+  }
+  const livePrice = Number(d.price ?? d.price_cents ?? d.buybox_price ?? 0) || 0;
   const p = {
-    url: pu.url, retailer: pu.retailer, store: retailerName(pu.retailer), title: d.title || d.product_title || 'Product',
-    priceCents: Number(d.price ?? d.price_cents ?? d.buybox_price ?? 0) || 0, image: d.main_image || (d.images && d.images[0]) || null,
-    stars: d.stars ?? null, reviews: d.review_count ?? d.num_reviews ?? null, kg: weightKg(d), available: true,
+    ...(cached || {}),
+    url: cached?.url || pu.url, retailer: pu.retailer, store: retailerName(pu.retailer),
+    title: d.title || d.product_title || cached?.title || 'Product',
+    priceCents: livePrice || cached?.priceCents || 0,
+    image: d.main_image || (d.images && d.images[0]) || cached?.image || null,
+    stars: d.stars ?? cached?.stars ?? null, reviews: d.review_count ?? d.num_reviews ?? cached?.reviews ?? null,
+    kg: weightKg(d) ?? cached?.kg ?? null, available: d.available ?? true,
+    priceChecked: livePrice ? 'live' : 'search',
   };
   await remember(env, [p]);
   return p;

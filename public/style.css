@@ -141,3 +141,5 @@ textarea.inp{height:76px;padding:10px 12px;resize:vertical}
 @media (max-width:820px){main{padding:14px 12px 80px}.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.pd,.two{grid-template-columns:minmax(0,1fr)}.buy{position:static}
  .rate{margin-left:0;width:100%}.ops.c4{grid-template-columns:1fr 1fr}.ops.c2,.fg{grid-template-columns:minmax(0,1fr)}.hdr{padding:0 12px}.hb span{display:none}.logo small{display:none}h1{font-size:23px}}
 @media (prefers-reduced-motion:reduce){.v.on,.skel{animation:none}}
+
+.err.warn{background:#FFF6CC;color:#7A5A00}
