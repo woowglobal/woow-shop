@@ -41,6 +41,9 @@ td{padding:12px;border-bottom:1px solid #F2F2F5;vertical-align:top}tr.r{cursor:p
 .pl{font-size:13px}.pl div{display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid #F2F2F5}.pl div:first-child{border-top:0}.pl .tot{font-weight:800;font-size:16px;border-top:2px solid #1D1D1F}.pl small{color:var(--mute);font-weight:500}
 .neg{color:#D92D20}.pos{color:#248A3D}
 .ef{display:grid;grid-template-columns:130px 160px 110px 80px minmax(0,1fr) 110px auto;gap:8px;align-items:end}.ef label{font-size:11px;color:var(--mute);font-weight:700;display:flex;flex-direction:column;gap:4px}.ef .inp{height:38px}
+.flr{display:grid;grid-template-columns:150px 150px minmax(0,1fr) 110px auto;gap:10px;align-items:center;padding:9px 0;border-top:1px solid #F2F2F5;font-size:13px}.flr:first-child{border-top:0}
+.flr .src{white-space:nowrap;font-size:11px;font-weight:800;border-radius:999px;padding:2px 8px;background:#F2F2F7;justify-self:start}.flr .src.set{background:#FFF6CC}
+.flr div{display:flex;gap:6px}.flr button{height:30px;padding:0 10px;border-radius:9px;border:0;background:#F2F2F7;font-weight:700;font-size:12px;cursor:pointer}.flr .x{color:#D92D20}
 @media (max-width:900px){.ef{grid-template-columns:1fr 1fr}}
 @media (max-width:900px){.kp{grid-template-columns:1fr 1fr}.g2{grid-template-columns:minmax(0,1fr)}}
 @media (max-width:760px){.set{grid-template-columns:1fr 1fr}.hide-m{display:none}}
@@ -96,8 +99,12 @@ td{padding:12px;border-bottom:1px solid #F2F2F5;vertical-align:top}tr.r{cursor:p
       </div>
       <span class="lbl">Products that may have a customs brokerage charge (one per line)</span>
       <textarea class="inp" id="sBrk" style="height:160px;padding:10px 12px"></textarea>
-      <span class="lbl">WOOW flight days</span>
-      <div class="days" id="sDays"></div>
+      <h3 style="margin-top:22px">✈️ WOOW flights</h3>
+      <div class="set"><label>Flights every month on (days)<input class="inp" id="sMD" placeholder="10, 20, 30"></label></div>
+      <span class="lbl">Upcoming flights — move or cancel when the air schedule changes. Customers see the new dates right away.</span>
+      <div id="sFl"></div>
+      <button class="hb" style="margin-top:8px;background:#fff;color:#1D1D1F;border:1.5px solid #E5E5EA" onclick="addFlight()">+ Add flight</button>
+      <p class="lead2" id="sFlApi" style="margin-top:10px"></p>
       <button class="btn dk" style="margin-top:16px;max-width:240px" onclick="saveSet()">Save settings</button>
     </div>
   </section>

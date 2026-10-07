@@ -90,6 +90,8 @@ Admin panel: `https://...workers.dev/admin` → ইউজার `admin`, পা�
 - **Settings → US delivery & sales tax** — warehouse Delaware হলে tax ০%, New York হলে 8.875%। প্রতিটা store এর free delivery সীমা ($35) আর fee এখানে বদলানো যায়।
 - **💰 Money** — কত টাকা এল, store থেকে আসলে কত দিয়ে কেনা হল (Purchase sheet এ "actual cost" দিলে), Zinc খরচ, অন্যান্য খরচ (air freight, customs, warehouse, staff, courier, marketing…), **Net profit**, আর কত shipping টাকা এখনো তোলা বাকি। খরচ যোগ করুন "Add expense" দিয়ে; CSV export করা যায়।
 - **Dashboard এর উপরে Alerts** — ১ ঘণ্টার বেশি না-কেনা item, লোকসানের order, বাকি shipping টাকা, Zinc budget/balance কম।
+- **✈️ WOOW flights (Settings)** — প্রতি মাসে ১০, ২০, ৩০ তারিখ (ছোট মাসে শেষ দিন)। Air schedule বদলালে **Move** (নতুন তারিখ + কারণ) বা **Cancel**, নতুন flight হলে **+ Add flight**। নতুন quote আর পুরনো order (যেগুলো এখনো flight এ ওঠেনি) — সবার delivery date সাথে সাথে বদলে যায়।
+- **WOOW main admin থেকে auto update** — Cloudflare এ Secret **FLIGHTS_API_KEY** যোগ করুন। তারপর main admin থেকে `POST /api/flights` (header `x-woow-key: <key>`, body `{"flights":[{"date":"2026-10-22","no":"EK-585","note":"Airline change"},{"date":"2026-10-20","cancelled":true}]}`)। `GET /api/flights` এ সামনের flight তালিকা পাওয়া যায়।
 - **Zinc cost control** — দৈনিক Zinc বাজেট ($3 default)। বাজেট শেষ হলে সার্চ আগের সেভ করা প্রোডাক্ট থেকে দেখাবে, নতুন খরচ হবে না।
 
 ## লাইভে যাওয়ার আগে চেকলিস্ট

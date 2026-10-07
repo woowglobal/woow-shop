@@ -1,6 +1,6 @@
 // WOOW Shop on Cloudflare Workers — API, payments, Zinc purchasing, admin.
 // Website files (public/) are served by Cloudflare Static Assets.
-import { getPricing, savePricing, quote, deliveryPlan, taxRate, shipRule } from './pricing.js';
+import { getPricing, savePricing, quote, deliveryPlan, taxRate, shipRule, upcomingFlights, cleanFlights, refreshPlan } from './pricing.js';
 import * as zinc from './zinc.js';
 import * as ssl from './sslcommerz.js';
 
@@ -189,7 +189,7 @@ async function handle(req, env, ctx) {
     const p = await getPricing(env.DB);
     return json({
       demo: { zinc: !env.ZINC_API_KEY, payments: !ssl.paymentsLive(env) }, rate: p.rate, feePercent: p.feePercent, minFee: p.minFee, kgRate: p.kgRate,
-      defaultKg: p.defaultKg, packagingPercent: p.packagingPercent, usShipping: p.usShipping, warehouseState: p.warehouseState, taxRate: taxRate(p), brokerageList: p.brokerageList, whatsapp: env.WHATSAPP_NUMBER || '8801816369701', rateLockMinutes: p.rateLockMinutes, flightDays: p.flightDays, transitDays: p.transitDays, dhakaDaysAfterFlight: p.dhakaDaysAfterFlight,
+      defaultKg: p.defaultKg, packagingPercent: p.packagingPercent, usShipping: p.usShipping, warehouseState: p.warehouseState, taxRate: taxRate(p), brokerageList: p.brokerageList, whatsapp: env.WHATSAPP_NUMBER || '8801816369701', rateLockMinutes: p.rateLockMinutes, flights: upcomingFlights(new Date(Date.now() + 6 * 3600e3), p, 12), transitDays: p.transitDays, dhakaDaysAfterFlight: p.dhakaDaysAfterFlight,
       stores: zinc.SEARCH_RETAILERS.map((r) => ({ id: r, name: zinc.retailerName(r) })),
       bank: { name: env.BANK_ACCOUNT_NAME || 'WOOW Global (BD)', number: env.BANK_ACCOUNT_NUMBER || '—', branch: env.BANK_NAME_BRANCH || '—' },
     });
@@ -282,6 +282,20 @@ async function handle(req, env, ctx) {
     return json({ orderId: id, phone });
   }
 
+  // WOOW flight schedule. GET = next flights (public). POST = WOOW main admin pushes the schedule
+  // (header "x-woow-key: <FLIGHTS_API_KEY secret>"; body { flights:[{date:'2026-10-20', no, note, cancelled}], monthDays?:[10,20,30], replace?:true }).
+  if (path === '/api/flights') {
+    if (m === 'POST') {
+      const k = req.headers.get('x-woow-key') || '';
+      if (!env.FLIGHTS_API_KEY || k.length !== env.FLIGHTS_API_KEY.length || !crypto.subtle.timingSafeEqual(new TextEncoder().encode(k), new TextEncoder().encode(env.FLIGHTS_API_KEY))) return bad('Not allowed', 401);
+      const b = await body(req), cur = await getPricing(env.DB);
+      const list = Array.isArray(b.flights) ? (b.replace ? b.flights : [...(cur.flights || []).filter((f) => !b.flights.some((x) => x.date === f.date)), ...b.flights]) : cur.flights;
+      const p = await savePricing(env.DB, { flights: cleanFlights(list), ...(Array.isArray(b.monthDays) ? { flightMonthDays: b.monthDays } : {}) });
+      return json({ ok: true, upcoming: upcomingFlights(new Date(Date.now() + 6 * 3600e3), p, 10) });
+    }
+    return json({ upcoming: upcomingFlights(new Date(Date.now() + 6 * 3600e3), await getPricing(env.DB), 10) });
+  }
+
   // Home feed: what other customers searched, viewed and bought — built from WOOW's own data, so it costs no Zinc calls.
   if (path === '/api/feed') {
     const cache = caches.default, key = new Request(url.origin + '/__feed?v=1');
@@ -337,6 +351,7 @@ async function handle(req, env, ctx) {
   if ((mm = path.match(/^\/api\/track\/([A-Za-z0-9-]+)$/))) {
     const o = await getOrder(env, mm[1].toUpperCase());
     if (!o || o.phone !== bdPhone(url.searchParams.get('phone'))) return bad('No order found with this number and phone.', 404);
+    if (['quote_requested', 'awaiting_payment', 'bank_review', 'paid', 'purchasing', 'purchased', 'at_warehouse', 'problem'].includes(o.status)) o.delivery = refreshPlan(o.delivery, await getPricing(env.DB));
     return json({ order: publicOrder(o, await getEvents(env, o.id)) });
   }
 
@@ -405,7 +420,7 @@ async function adminApi(req, env, ctx, path, m) {
   }
   let em;
   if ((em = path.match(/^\/api\/admin\/expenses\/(\d+)\/delete$/)) && m === 'POST') { await env.DB.prepare('DELETE FROM expenses WHERE id=?').bind(+em[1]).run(); return json({ ok: true }); }
-  if (path === '/api/admin/settings') return json({ pricing: m === 'POST' ? await savePricing(env.DB, await body(req)) : await getPricing(env.DB) });
+  if (path === '/api/admin/settings') { const p = m === 'POST' ? await savePricing(env.DB, await body(req)) : await getPricing(env.DB); return json({ pricing: p, upcoming: upcomingFlights(new Date(Date.now() + 6 * 3600e3), p, 10), flightsApi: !!env.FLIGHTS_API_KEY }); }
   const mm = path.match(/^\/api\/admin\/orders\/([A-Z0-9-]+)(?:\/([a-z-]+))?$/);
   if (!mm) return bad('Not found', 404);
   const o = await getOrder(env, mm[1]);

@@ -23,7 +23,8 @@ export const DEFAULT_SETTINGS = {
   taxRates: { DE: 0, NY: 8.875 }, // % sales tax on products + US delivery
   zincDailyBudgetCents: 300, // stop paid Zinc searches after this much per day (saved products are used instead)
   liveFreshMinutes: 15,  // at Pay, skip the paid live price check if we checked this product in the last N minutes
-  flightDays: [3, 6],   // WOOW flights: 0=Sun … 3=Wed, 6=Sat
+  flightMonthDays: [10, 20, 30], // WOOW flights each month (30 → last day in short months)
+  flights: [],          // exact upcoming flights, override the monthly days: [{ date:'2026-10-20', no:'BDUS-261020', note, cancelled }]
   dhakaDaysAfterFlight: 3,
   transitDays: {        // store → US warehouse, [min, max] days
     amazon: [2, 3], walmart: [3, 5], target: [3, 5], bestbuy: [3, 5], costco: [4, 7],
@@ -50,7 +51,8 @@ export async function savePricing(db, p) {
     if (u.default) next.usShipping = u;
   }
   if (Array.isArray(p.brokerageList)) next.brokerageList = p.brokerageList.map((x) => String(x).trim().slice(0, 120)).filter(Boolean).slice(0, 40);
-  if (Array.isArray(p.flightDays)) next.flightDays = p.flightDays.map(Number).filter((d) => d >= 0 && d <= 6);
+  if (Array.isArray(p.flightMonthDays)) { const d = p.flightMonthDays.map(Number).filter((x) => x >= 1 && x <= 31); if (d.length) next.flightMonthDays = [...new Set(d)].sort((a, b) => a - b); }
+  if (Array.isArray(p.flights)) next.flights = cleanFlights(p.flights);
   await db.prepare('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind('pricing', JSON.stringify(next)).run();
   return next;
 }
@@ -97,6 +99,39 @@ export function quote(items, p) {
   };
 }
 
+export function cleanFlights(list) {
+  const today = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
+  const m = new Map();
+  for (const f of list) {
+    const date = String(f?.date || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date < today) continue;
+    m.set(date, { date, no: String(f.no || f.flightNo || '').slice(0, 30), note: String(f.note || '').slice(0, 120), cancelled: !!f.cancelled });
+  }
+  return [...m.values()].sort((a, b) => (a.date < b.date ? -1 : 1)).slice(0, 60);
+}
+/** Upcoming WOOW flights from `from`: monthly days (10/20/30; 30 → last day in short months)
+ *  merged with the exact list (admin or WOOW main system). A cancelled entry removes that date. */
+export function upcomingFlights(from, p, n = 8) {
+  const ymd = (d) => d.toISOString().slice(0, 10), f0 = ymd(from);
+  const exact = (p.flights || []).filter((f) => f.date >= f0);
+  const cancelled = new Set(exact.filter((f) => f.cancelled).map((f) => f.date));
+  const out = new Map(exact.filter((f) => !f.cancelled).map((f) => [f.date, { date: f.date, no: f.no || '', note: f.note || '', source: 'set' }]));
+  const days = p.flightMonthDays?.length ? p.flightMonthDays : [10, 20, 30];
+  for (let mo = 0; mo < 6; mo++) {
+    const y = from.getUTCFullYear(), m = from.getUTCMonth() + mo, last = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+    for (const d of days) {
+      const k = ymd(new Date(Date.UTC(y, m, Math.min(d, last), 12)));
+      if (k >= f0 && !cancelled.has(k) && !out.has(k)) out.set(k, { date: k, no: '', note: '', source: 'monthly' });
+    }
+  }
+  return [...out.values()].sort((a, b) => (a.date < b.date ? -1 : 1)).slice(0, n)
+    .map((f) => ({ ...f, no: f.no || 'BDUS-' + f.date.slice(2).replace(/-/g, '') }));
+}
+export function nextFlight(from, p) {
+  const f = upcomingFlights(from, p, 1)[0];
+  return f ? { date: new Date(f.date + 'T12:00:00Z'), no: f.no, note: f.note } : { date: new Date(from.getTime() + 10 * 864e5), no: '', note: '' };
+}
+
 /** Delivery plan in Dhaka dates: warehouse date, next WOOW flight, Dhaka arrival, delivery window. */
 export function deliveryPlan(retailers, p, now = Date.now()) {
   const DAY = 864e5;
@@ -109,15 +144,24 @@ export function deliveryPlan(retailers, p, now = Date.now()) {
     return { retailer: r, from: day(buy, a), to: day(buy, b) };
   });
   const warehouse = stores.reduce((m, s) => (s.to > m ? s.to : m), buy);
-  let flight = day(warehouse, 1);
-  for (let i = 0; i < 14 && !p.flightDays.includes(flight.getUTCDay()); i++) flight = day(flight, 1);
+  const nf = nextFlight(day(warehouse, 1), p), flight = nf.date;
   const land = day(flight, p.dhakaDaysAfterFlight);
   const d2 = day(land, 2);
   return {
     buy: ymd(buy),
     stores: stores.map((s) => ({ retailer: s.retailer, from: ymd(s.from), to: ymd(s.to) })),
-    warehouse: ymd(warehouse), flight: ymd(flight), flightNo: 'BDUS-' + ymd(flight).slice(2).replace(/-/g, ''),
+    warehouse: ymd(warehouse), flight: ymd(flight), flightNo: nf.no || 'BDUS-' + ymd(flight).slice(2).replace(/-/g, ''), flightNote: nf.note || '',
     land: ymd(land), deliverFrom: ymd(day(land, 1)), deliverTo: ymd(d2),
     leadDays: Math.round((d2 - t0) / DAY),
   };
+}
+
+/** Orders not yet flown follow schedule changes: keep buy/warehouse dates, move flight → Dhaka → delivery. */
+export function refreshPlan(plan, p) {
+  if (!plan?.warehouse) return plan;
+  const DAY = 864e5, ymd = (d) => d.toISOString().slice(0, 10);
+  const wh = new Date(plan.warehouse + 'T12:00:00Z'), nf = nextFlight(new Date(wh.getTime() + DAY), p);
+  if (ymd(nf.date) === plan.flight) return plan;
+  const land = new Date(nf.date.getTime() + p.dhakaDaysAfterFlight * DAY);
+  return { ...plan, flight: ymd(nf.date), flightNo: nf.no || 'BDUS-' + ymd(nf.date).slice(2).replace(/-/g, ''), flightNote: nf.note || '', land: ymd(land), deliverFrom: ymd(new Date(land.getTime() + DAY)), deliverTo: ymd(new Date(land.getTime() + 2 * DAY)), moved: true };
 }

@@ -147,9 +147,10 @@ function localPlan(retailers) {
   const t0 = new Date(); t0.setHours(12, 0, 0, 0); const buy = day(t0, 1);
   const stores = [...new Set(retailers)].map((r) => { const [a, b] = CFG.transitDays[r] || CFG.transitDays.default; return { retailer: r, from: day(buy, a), to: day(buy, b) }; });
   const wh = stores.reduce((m, s) => (s.to > m ? s.to : m), buy);
-  let fl = day(wh, 1); for (let i = 0; i < 14 && !CFG.flightDays.includes(fl.getDay()); i++) fl = day(fl, 1);
+  const after = ymd(day(wh, 1)), nf = (CFG.flights || []).find((f) => f.date >= after); // WOOW flight schedule from the server
+  const fl = nf ? new Date(nf.date + 'T12:00:00') : day(wh, 10);
   const land = day(fl, CFG.dhakaDaysAfterFlight), d2 = day(land, 2);
-  return { buy: ymd(buy), stores: stores.map((s) => ({ retailer: s.retailer, from: ymd(s.from), to: ymd(s.to) })), warehouse: ymd(wh), flight: ymd(fl), flightNo: 'BDUS-' + ymd(fl).slice(2).replace(/-/g, ''), land: ymd(land), deliverFrom: ymd(day(land, 1)), deliverTo: ymd(d2), leadDays: Math.round((d2 - t0) / 864e5) };
+  return { buy: ymd(buy), stores: stores.map((s) => ({ retailer: s.retailer, from: ymd(s.from), to: ymd(s.to) })), warehouse: ymd(wh), flight: ymd(fl), flightNo: nf?.no || 'BDUS-' + ymd(fl).slice(2).replace(/-/g, ''), land: ymd(land), deliverFrom: ymd(day(land, 1)), deliverTo: ymd(d2), leadDays: Math.round((d2 - t0) / 864e5) };
 }
 
 // ── browse ──

@@ -74,17 +74,17 @@ async function setSt(id) {
 // settings
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 async function loadSet() {
-  const { pricing: p } = await api('/api/admin/settings');
+  const S = await api('/api/admin/settings'), p = S.pricing;
   $('sRate').value = p.rate; $('sFee').value = p.feePercent; $('sMin').value = p.minFee; $('sKg').value = p.kgRate; $('sDef').value = p.defaultKg; $('sLand').value = p.dhakaDaysAfterFlight; $('sPack').value = p.packagingPercent ?? 10; $('sBrk').value = (p.brokerageList || []).join('\n');
   $('sWh').value = p.warehouseState || 'DE'; $('sNy').value = p.taxRates?.NY ?? 8.875; $('sDe').value = p.taxRates?.DE ?? 0;
   $('sBud').value = ((p.zincDailyBudgetCents ?? 300) / 100).toFixed(2); $('sFresh').value = p.liveFreshMinutes ?? 15;
   const SH = p.usShipping || {};
   $('sShip').innerHTML = [...new Set(['amazon', 'walmart', 'target', 'bestbuy', 'macys', 'costco', ...Object.keys(SH).filter((k) => k !== 'default'), 'default'])].map((k) => `<div data-k="${k}">${k === 'default' ? 'Other stores' : esc(k)}<span><label style="flex:1;font-size:10.5px;color:#86868B">Free over $<input class="inp" data-f="freeOver" value="${SH[k]?.freeOver ?? 35}"></label><label style="flex:1;font-size:10.5px;color:#86868B">Else fee $<input class="inp" data-f="fee" value="${SH[k]?.fee ?? 7.99}"></label></span></div>`).join('');
-  $('sDays').innerHTML = DAYS.map((d, i) => `<label><input type="checkbox" value="${i}" ${p.flightDays.includes(i) ? 'checked' : ''}>${d}</label>`).join('');
+  $('sMD').value = (p.flightMonthDays || [10, 20, 30]).join(', ');
+  FL = p.flights || []; drawFlights(S.upcoming); $('sFlApi').innerHTML = S.flightsApi ? '🔗 WOOW main admin can update flights automatically (API on).' : 'Auto update from WOOW main admin: add secret <b>FLIGHTS_API_KEY</b> in Cloudflare, then send flights to <code>/api/flights</code>.';
 }
 async function saveSet() {
-  const flightDays = [...$('sDays').querySelectorAll('input:checked')].map((x) => +x.value);
-  try { await api('/api/admin/settings', { rate: $('sRate').value, feePercent: $('sFee').value, minFee: $('sMin').value, kgRate: $('sKg').value, defaultKg: $('sDef').value, dhakaDaysAfterFlight: $('sLand').value, packagingPercent: $('sPack').value, brokerageList: $('sBrk').value.split('\n'), flightDays,
+  try { await api('/api/admin/settings', { rate: $('sRate').value, feePercent: $('sFee').value, minFee: $('sMin').value, kgRate: $('sKg').value, defaultKg: $('sDef').value, dhakaDaysAfterFlight: $('sLand').value, packagingPercent: $('sPack').value, brokerageList: $('sBrk').value.split('\n'), flightMonthDays: $('sMD').value.split(/[^0-9]+/).filter(Boolean).map(Number),
     warehouseState: $('sWh').value, taxRates: { DE: $('sDe').value, NY: $('sNy').value }, zincDailyBudgetCents: Math.round(Number($('sBud').value) * 100), liveFreshMinutes: $('sFresh').value,
     usShipping: Object.fromEntries([...$('sShip').children].map((d) => [d.dataset.k, { freeOver: d.querySelector('[data-f=freeOver]').value, fee: d.querySelector('[data-f=fee]').value }])) }); toast('Settings saved'); } catch (e) { toast(e.message); }
 }
@@ -94,6 +94,28 @@ document.querySelector('.tabs2').addEventListener('click', (e) => {
   ['dash', 'buy', 'money', 'orders', 'settings'].forEach((t) => { $('t-' + t).hidden = b.dataset.t !== t; });
   if (b.dataset.t === 'money') loadMoney(); if (b.dataset.t === 'settings') loadSet(); if (b.dataset.t === 'dash') loadDash(); if (b.dataset.t === 'buy') loadBuy();
 });
+
+// ───────── WOOW flights: monthly days + moved / cancelled / extra flights ─────────
+let FL = [];
+const fdate = (d) => new Date(d + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+function drawFlights(up) {
+  const cx = FL.filter((f) => f.cancelled && f.date >= new Date().toISOString().slice(0, 10));
+  $('sFl').innerHTML = (up || []).map((f) => `<div class="flr"><b>${fdate(f.date)}</b><span>${esc(f.no)}</span><span style="color:#86868B">${esc(f.note || '')}</span><span class="src ${f.source}">${f.source === 'set' ? 'Updated' : 'Monthly'}</span>
+    <div><button onclick="moveFlight('${f.date}')">Move</button><button class="x" onclick="cancelFlight('${f.date}')">Cancel</button></div></div>`).join('') +
+    cx.map((f) => `<div class="flr" style="opacity:.55"><s>${fdate(f.date)}</s><span>Cancelled</span><span></span><span></span><div><button onclick="restoreFlight('${f.date}')">Restore</button></div></div>`).join('');
+}
+async function saveFlights(msg) {
+  try { const S = await api('/api/admin/settings', { flights: FL }); FL = S.pricing.flights; drawFlights(S.upcoming); toast(msg); } catch (e) { toast(e.message); }
+}
+const askDate = (t, d) => { const v = prompt(t + ' (YYYY-MM-DD)', d || ''); return v && /^\d{4}-\d{2}-\d{2}$/.test(v.trim()) ? v.trim() : null; };
+function moveFlight(d) {
+  const n = askDate('Move the ' + fdate(d) + ' flight to', d); if (!n || n === d) return;
+  const note = prompt('Reason (customers may see it)', 'Schedule changed by airline') || '';
+  FL = FL.filter((f) => f.date !== d && f.date !== n); FL.push({ date: d, cancelled: true }, { date: n, note }); saveFlights('Flight moved — delivery dates updated');
+}
+function cancelFlight(d) { if (!confirm('Cancel the ' + fdate(d) + ' flight?')) return; FL = FL.filter((f) => f.date !== d); FL.push({ date: d, cancelled: true }); saveFlights('Flight cancelled'); }
+function restoreFlight(d) { FL = FL.filter((f) => f.date !== d); saveFlights('Flight restored'); }
+function addFlight() { const d = askDate('New flight date'); if (!d) return; const no = prompt('Flight number (optional)', '') || ''; FL = FL.filter((f) => f.date !== d); FL.push({ date: d, no }); saveFlights('Flight added'); }
 
 // ───────── Dashboard: shop activity + Zinc calls & cost ─────────
 let DAYS_N = 7;

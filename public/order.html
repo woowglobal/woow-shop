@@ -40,7 +40,7 @@ function draw(o, phone) {
   const paidish = !['awaiting_payment', 'bank_review', 'cancelled'].includes(o.status);
   const steps = [['paid', 'Paid in Taka'], ['purchasing', 'GENI is buying from the stores'], ['purchased', 'Bought — on the way to our US warehouse'], ['at_warehouse', 'At WOOW US warehouse'], ['in_flight', 'On the WOOW flight'], ['in_dhaka', 'In Dhaka, clearing customs'], ['delivered', 'Delivered to you']];
   const ix = steps.findIndex((s) => s[0] === o.status);
-  const dates = o.delivery ? { at_warehouse: 'by ' + fd(o.delivery.warehouse), in_flight: fd(o.delivery.flight) + ' · ' + o.delivery.flightNo, in_dhaka: fd(o.delivery.land), delivered: fd(o.delivery.deliverFrom) + ' – ' + fd(o.delivery.deliverTo) } : {};
+  const dates = o.delivery ? { at_warehouse: 'by ' + fd(o.delivery.warehouse), in_flight: fd(o.delivery.flight) + ' · ' + o.delivery.flightNo + (o.delivery.moved ? ' · new date' + (o.delivery.flightNote ? ' (' + o.delivery.flightNote + ')' : '') : ''), in_dhaka: fd(o.delivery.land), delivered: fd(o.delivery.deliverFrom) + ' – ' + fd(o.delivery.deliverTo) } : {};
   let head = '';
   if (o.status === 'awaiting_payment' && o.method === 'bank') {
     head = `<div class="card sec"><h3>Send the bank transfer</h3>
