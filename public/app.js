@@ -183,7 +183,7 @@ window.addEventListener('popstate', (e) => go(e.state?.v || 'browse'));
 (async function init() {
   CFG = await api('/api/config');
   $('stores').insertAdjacentHTML('beforeend', CFG.stores.map((s) => `<button class="stb" data-st="${s.id}">${esc(s.name)}</button>`).join('') + `<span class="rate"><i></i>Today's rate <b>$1 = ৳${CFG.rate}</b></span>`);
-  if (CFG.demo.zinc || CFG.demo.payments) { $('demoBar').hidden = false; $('demoBar').textContent = 'DEMO MODE · ' + [CFG.demo.zinc && 'sample products', CFG.demo.payments && 'test payments'].filter(Boolean).join(' · ') + ' · add your keys in .env to go live'; }
+  if (CFG.demo.zinc || CFG.demo.payments) { $('demoBar').hidden = false; $('demoBar').textContent = 'DEMO MODE · ' + [CFG.demo.zinc && 'sample products', CFG.demo.payments && 'test payments'].filter(Boolean).join(' · ') + ' · add your keys in Cloudflare (Settings → Variables and Secrets) to go live'; }
   try { const c = JSON.parse(localStorage.getItem('woowCustomer') || 'null'); if (c) { $('cName').value = c.name || ''; $('cPhone').value = c.phone || ''; $('cEmail').value = c.email || ''; $('cCity').value = c.city || 'Dhaka'; $('cAddr').value = c.address || ''; } } catch {}
   save(); doSearch();
   const h = location.hash.slice(1); if (h === 'cart' || h === 'pay') go(h);
