@@ -394,6 +394,17 @@ async function adminApi(req, env, ctx, path, m) {
     const r = await env.DB.prepare(`SELECT * FROM orders WHERE status IN (${all ? "'paid','purchasing','purchased','problem','at_warehouse','in_flight','in_dhaka','delivered'" : "'paid','purchasing','problem'"}) ORDER BY created_at LIMIT 300`).all();
     return json({ orders: r.results.map(row2order) });
   }
+  if (path === '/api/admin/money') return json(await money(env, Math.max(1, Math.min(366, parseInt(new URL(req.url).searchParams.get('days'), 10) || 30))));
+  if (path === '/api/admin/expenses' && m === 'POST') {
+    const b = await body(req), amt = Number(b.amount);
+    if (!(amt > 0) || amt > 1e8) return bad('Enter an amount.');
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(b.day || '') ? b.day : new Date().toISOString().slice(0, 10);
+    await env.DB.prepare('INSERT INTO expenses (day,category,amount,currency,note,order_id,created_at) VALUES (?,?,?,?,?,?,?)')
+      .bind(day, String(b.category || 'Other').slice(0, 40), amt, b.currency === 'USD' ? 'USD' : 'BDT', String(b.note || '').slice(0, 200), String(b.order || '').toUpperCase().slice(0, 20) || null, nowIso()).run();
+    return json({ ok: true });
+  }
+  let em;
+  if ((em = path.match(/^\/api\/admin\/expenses\/(\d+)\/delete$/)) && m === 'POST') { await env.DB.prepare('DELETE FROM expenses WHERE id=?').bind(+em[1]).run(); return json({ ok: true }); }
   if (path === '/api/admin/settings') return json({ pricing: m === 'POST' ? await savePricing(env.DB, await body(req)) : await getPricing(env.DB) });
   const mm = path.match(/^\/api\/admin\/orders\/([A-Z0-9-]+)(?:\/([a-z-]+))?$/);
   if (!mm) return bad('Not found', 404);
@@ -466,6 +477,38 @@ async function feed(env) {
   // 4) trending searches
   const searches = (await all("SELECT lower(q) q, COUNT(*) n FROM track WHERE type='search' AND ts > ? AND q IS NOT NULL AND q != '(popular)' GROUP BY lower(q) ORDER BY n DESC LIMIT 12", now - 7 * 864e5)).map((r) => r.q);
   return { bought, popular, fresh, searches, at: now };
+}
+
+// ───────── back office money: received, charged vs actual buying cost, Zinc, expenses, profit ─────────
+async function money(env, days) {
+  const since = new Date(Date.now() - days * 864e5), sinceIso = since.toISOString(), DB = env.DB;
+  const pr = await getPricing(DB), rate = pr.rate;
+  const orders = (await DB.prepare("SELECT * FROM orders WHERE created_at >= ? AND status NOT IN ('quote_requested','cancelled') ORDER BY created_at DESC LIMIT 1000").bind(sinceIso).all()).results.map(row2order);
+  const zinc = (await DB.prepare('SELECT COALESCE(SUM(cost_cents),0) c FROM zinc_calls WHERE ts >= ?').bind(since.getTime()).first().catch(() => ({ c: 0 }))).c;
+  const exp = (await DB.prepare('SELECT * FROM expenses WHERE day >= ? ORDER BY day DESC, id DESC LIMIT 500').bind(sinceIso.slice(0, 10)).all().catch(() => ({ results: [] }))).results;
+  const T = { received: 0, charged: 0, goodsCharged: 0, goodsActual: 0, estimated: 0, fee: 0, shipCollected: 0, shipDue: 0, unpaid: 0, overruns: 0 };
+  const rows = orders.map((o) => {
+    const t = o.totals || {}, r = t.rate || rate, paid = o.amount_paid || 0;
+    const goodsCharged = (t.product || 0) + (t.usShip || 0) + (t.usTax || 0);
+    let actualUsd = 0, known = 0;
+    for (const it of o.items) if (it.buy?.status === 'bought' && Number.isFinite(it.buy.costUsd) && it.buy.costUsd > 0) { actualUsd += it.buy.costUsd; known++; }
+    const bought = o.items.filter((i) => i.buy?.status === 'bought').length;
+    const allKnown = known === o.items.length;
+    const goodsActual = paid > 0 ? (allKnown ? Math.round(actualUsd * r) : goodsCharged) : 0;
+    const diff = paid > 0 && allKnown ? goodsCharged - goodsActual : null;
+    const shipDue = paid > 0 && o.plan === 'split' && paid < (t.total || 0) ? (t.total || 0) - paid : 0;
+    if (paid > 0) {
+      T.received += paid; T.charged += t.total || 0; T.goodsCharged += goodsCharged; T.goodsActual += goodsActual; T.fee += t.fee || 0;
+      T.shipCollected += o.plan === 'full' ? t.shipping || 0 : Math.max(0, paid - (t.payNowSplit || 0)); T.shipDue += shipDue;
+      if (!allKnown) T.estimated++; if (diff !== null && diff < 0) T.overruns++;
+    } else T.unpaid += o.amount_due || 0;
+    return { id: o.id, at: o.created_at, status: o.status, name: o.customer?.name, city: o.customer?.city, stores: [...new Set(o.items.map((i) => i.store))], items: o.items.length, bought, paid, total: t.total || 0, goodsCharged, goodsActual, diff, fee: t.fee || 0, shipping: t.shipping || 0, shipDue, plan: o.plan, estimated: paid > 0 && !allKnown };
+  });
+  const expBdt = exp.reduce((a, e) => a + (e.currency === 'USD' ? e.amount * rate : e.amount), 0);
+  const byCat = {}; exp.forEach((e) => { byCat[e.category] = (byCat[e.category] || 0) + (e.currency === 'USD' ? e.amount * rate : e.amount); });
+  const zincBdt = Math.round(zinc / 100 * rate);
+  const net = Math.round(T.received - T.goodsActual - zincBdt - expBdt);
+  return { days, rate, totals: { ...T, zincUsd: zinc / 100, zincBdt, expBdt: Math.round(expBdt), net }, byCat, rows, expenses: exp };
 }
 
 // ───────── dashboard: shop activity + Zinc calls & cost ─────────

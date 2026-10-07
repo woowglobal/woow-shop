@@ -88,6 +88,8 @@ Admin panel: `https://...workers.dev/admin` → ইউজার `admin`, পা�
 - **📊 Dashboard** — কতজন ভিজিটর, কে কোন শহর থেকে, কী সার্চ করছে, কতবার, cart, order, payment, আর Zinc এর balance + প্রতিদিন কত call ও কত খরচ।
 - **🛒 Purchase sheet** — পেমেন্ট হওয়া প্রতিটা প্রোডাক্ট (লিংক, সাইজ, পরিমাণ, দাম)। কিনে ফেললে **✓ Bought** (store order নম্বর দিন), না পারলে **✕ Can't** (কারণ লিখুন) — GENI সাথে সাথে customer এর order page এ জানিয়ে দেবে। WhatsApp বাটনে মেসেজ রেডি। **Export CSV** দিয়ে Excel এ নিন।
 - **Settings → US delivery & sales tax** — warehouse Delaware হলে tax ০%, New York হলে 8.875%। প্রতিটা store এর free delivery সীমা ($35) আর fee এখানে বদলানো যায়।
+- **💰 Money** — কত টাকা এল, store থেকে আসলে কত দিয়ে কেনা হল (Purchase sheet এ "actual cost" দিলে), Zinc খরচ, অন্যান্য খরচ (air freight, customs, warehouse, staff, courier, marketing…), **Net profit**, আর কত shipping টাকা এখনো তোলা বাকি। খরচ যোগ করুন "Add expense" দিয়ে; CSV export করা যায়।
+- **Dashboard এর উপরে Alerts** — ১ ঘণ্টার বেশি না-কেনা item, লোকসানের order, বাকি shipping টাকা, Zinc budget/balance কম।
 - **Zinc cost control** — দৈনিক Zinc বাজেট ($3 default)। বাজেট শেষ হলে সার্চ আগের সেভ করা প্রোডাক্ট থেকে দেখাবে, নতুন খরচ হবে না।
 
 ## লাইভে যাওয়ার আগে চেকলিস্ট

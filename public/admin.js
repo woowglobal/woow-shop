@@ -91,8 +91,8 @@ async function saveSet() {
 document.querySelector('.tabs2').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b) return;
   document.querySelectorAll('.tabs2 button').forEach((x) => x.classList.toggle('on', x === b));
-  ['dash', 'buy', 'orders', 'settings'].forEach((t) => { $('t-' + t).hidden = b.dataset.t !== t; });
-  if (b.dataset.t === 'settings') loadSet(); if (b.dataset.t === 'dash') loadDash(); if (b.dataset.t === 'buy') loadBuy();
+  ['dash', 'buy', 'money', 'orders', 'settings'].forEach((t) => { $('t-' + t).hidden = b.dataset.t !== t; });
+  if (b.dataset.t === 'money') loadMoney(); if (b.dataset.t === 'settings') loadSet(); if (b.dataset.t === 'dash') loadDash(); if (b.dataset.t === 'buy') loadBuy();
 });
 
 // ───────── Dashboard: shop activity + Zinc calls & cost ─────────
@@ -115,7 +115,17 @@ async function loadDash() {
   const w = z.wallet && !z.wallet.error ? z.wallet : null;
   const usageRows = z.usage && z.usage.metrics ? Object.entries(z.usage.metrics).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${n0(v.total)}</td><td><small>${n0(v.prev_total)} before</small></td></tr>`).join('') : '';
   const tbl = (head, rows) => `<table class="mt"><thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows || `<tr><td colspan="${head.length}" style="color:#86868B">No data yet</td></tr>`}</tbody></table>`;
-  $('dash').innerHTML = `
+  const late = BUY.filter((r) => !r.it.buy && Date.now() - r.paidAt > 3600e3).length, toBuy = BUY.filter((r) => !r.it.buy).length;
+  let M = null; try { M = await api('/api/admin/money?days=30'); } catch {}
+  const al = [];
+  if (late) al.push(['r', `⏱️ ${late} paid item${late > 1 ? 's' : ''} waiting more than 1 hour to be bought`, 'buy']);
+  else if (toBuy) al.push(['y', `🛒 ${toBuy} paid item${toBuy > 1 ? 's' : ''} to buy`, 'buy']);
+  if (M?.totals.overruns) al.push(['r', `💸 ${M.totals.overruns} order${M.totals.overruns > 1 ? 's' : ''} cost more to buy than the customer paid`, 'money']);
+  if (M?.totals.shipDue) al.push(['y', `📦 ${tk(M.totals.shipDue)} shipping still to collect (second invoices)`, 'money']);
+  if (budget && (t.cost || 0) >= budget * 0.85) al.push(['r', `⚠️ Zinc daily budget almost used (${money(t.cost || 0)} of ${money(budget)}) — searches now use saved products`, 'settings']);
+  if (w && Number(w.balance ?? w.spendable_balance) < 500) al.push(['r', `💳 Zinc balance low: ${money(w.balance ?? w.spendable_balance)} — top up at zinc.com`, null]);
+  if (!al.length) al.push(['g', '✅ All good — nothing waiting', null]);
+  $('dash').innerHTML = `<div class="al">${al.map(([c, x, tab]) => `<a class="${c}" ${tab ? `onclick="document.querySelector('[data-t=${tab}]').click()"` : ''}>${x}${tab ? '<b>Open →</b>' : ''}</a>`).join('')}</div>
   <div class="kp">${kp('Visitors', n0(d.people))}${kp('Searches', n0(c('search')), n0(ps('search')) + ' people')}${kp('Product views', n0(c('view')))}${kp('Add to cart', n0(c('cart')))}
   ${kp('Orders placed', n0(d.orders.n))}${kp('Paid orders', n0(d.orders.paidN))}${kp('Money received', tk(d.orders.paid))}${kp('Zinc cost', money(cost), n0(paidCalls) + ' paid calls')}</div>
   <div class="g2">
@@ -184,4 +194,55 @@ function csv() {
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['\ufeff' + text], { type: 'text/csv' })); a.download = 'woow-purchase-sheet-' + new Date().toISOString().slice(0, 10) + '.csv'; a.click();
 }
 
-load(); loadDash(); loadBuy(); setInterval(() => { load(); if (!$('t-buy').hidden) loadBuy(); if (!$('t-dash').hidden) loadDash(); }, 60000);
+// ───────── Money: received, buying cost, Zinc, expenses, profit ─────────
+let M_DAYS = 30, MONEY = null;
+const EXP_CATS = ['Air freight', 'Customs & clearing', 'US warehouse', 'Dhaka courier', 'Staff', 'Marketing', 'Zinc order fees', 'Packaging', 'Bank & gateway fees', 'Refund', 'Other'];
+$('mDays').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; M_DAYS = +b.dataset.d; $('mDays').querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b)); loadMoney(); });
+async function loadMoney() {
+  let d; try { d = MONEY = await api('/api/admin/money?days=' + M_DAYS); } catch (e) { $('money').innerHTML = `<div class="card sec">${esc(e.message)}</div>`; return; }
+  const T = d.totals, sg = (x) => `<span class="${x < 0 ? 'neg' : 'pos'}">${x < 0 ? '−' : '+'}${tk(Math.abs(x))}</span>`;
+  const kp = (l, v, sub) => `<div><small>${l}</small><b>${v}</b>${sub ? `<i>${sub}</i>` : ''}</div>`;
+  const tbl = (head, rows) => `<table class="mt"><thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows || `<tr><td colspan="${head.length}" style="color:#86868B">Nothing yet</td></tr>`}</tbody></table>`;
+  $('money').innerHTML = `
+  <div class="kp">${kp('Money received', tk(T.received))}${kp('Bought from stores', tk(T.goodsActual), T.estimated ? T.estimated + ' estimated' : '')}${kp('Expenses + Zinc', tk(T.expBdt + T.zincBdt))}${kp('Net profit', sg(T.net))}</div>
+  <div class="g2">
+    <div class="card sec"><h3>Profit &amp; loss <small>last ${d.days} day${d.days > 1 ? 's' : ''} · $1 = ৳${d.rate}</small></h3><div class="pl">
+      <div><span>Money received from customers</span><b>${tk(T.received)}</b></div>
+      <div><span>Products bought from stores <small>(actual cost${T.estimated ? '; ' + T.estimated + ' order' + (T.estimated > 1 ? 's' : '') + ' still estimated' : ''})</small></span><b>−${tk(T.goodsActual)}</b></div>
+      <div><span>Buying saving / overrun <small>charged ${tk(T.goodsCharged)} vs actual</small></span><b>${sg(T.goodsCharged - T.goodsActual)}</b></div>
+      <div><span>Zinc.com cost <small>$${T.zincUsd.toFixed(2)}</small></span><b>−${tk(T.zincBdt)}</b></div>
+      <div><span>Other expenses</span><b>−${tk(T.expBdt)}</b></div>
+      <div class="tot"><span>Net profit</span><b>${sg(T.net)}</b></div>
+      <div><span>WOOW service fees earned</span><b>${tk(T.fee)}</b></div>
+      <div><span>Shipping collected</span><b>${tk(T.shipCollected)}</b></div>
+      <div><span>Shipping still to collect <small>second invoices</small></span><b>${tk(T.shipDue)}</b></div>
+      <div><span>Orders waiting for payment</span><b>${tk(T.unpaid)}</b></div></div></div>
+    <div class="card sec"><h3>Expenses by type</h3>${tbl(['Type', 'Amount'], Object.entries(d.byCat).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${tk(v)}</td></tr>`).join('') + (T.zincBdt ? `<tr><td>Zinc.com (calls)</td><td>${tk(T.zincBdt)}</td></tr>` : ''))}</div>
+  </div>
+  <div class="card sec"><h3>Add expense</h3><div class="ef">
+    <label>Date<input class="inp" id="eDay" type="date" value="${new Date().toISOString().slice(0, 10)}"></label>
+    <label>Type<select class="inp" id="eCat">${EXP_CATS.map((c) => `<option>${c}</option>`).join('')}</select></label>
+    <label>Amount<input class="inp" id="eAmt" inputmode="decimal"></label>
+    <label>Currency<select class="inp" id="eCur"><option>BDT</option><option>USD</option></select></label>
+    <label>Note<input class="inp" id="eNote" placeholder="e.g. Flight BDUS-261014, 42 kg"></label>
+    <label>Order no. (optional)<input class="inp" id="eOrd" placeholder="WB-…"></label>
+    <button class="btn dk" style="height:38px;margin:0;padding:0 18px" onclick="addExp()">Add</button></div>
+    <div style="margin-top:12px">${tbl(['Date', 'Type', 'Amount', 'Note', ''], d.expenses.map((e) => `<tr><td>${esc(e.day)}</td><td>${esc(e.category)}</td><td>${e.currency === 'USD' ? '$' + e.amount.toFixed(2) : tk(e.amount)}</td><td>${esc(e.note || '')}${e.order_id ? ' · ' + esc(e.order_id) : ''}</td><td><button class="hb" style="height:28px;background:#F2F2F7;color:#D92D20" onclick="delExp(${e.id})">Delete</button></td></tr>`).join(''))}</div></div>
+  <div class="card sec" style="overflow:auto"><h3>Orders <small>charged vs actual buying cost</small></h3>${tbl(['Order', 'Customer', 'Paid', 'Products charged', 'Actual cost', 'Saving', 'WOOW fee', 'Shipping due', 'Status'], d.rows.map((r) => `<tr><td><b>${r.id}</b><br><small>${new Date(r.at).toLocaleDateString()}</small></td><td>${esc(r.name || '')}<br><small>${esc(r.city || '')} · ${esc(r.stores.join(', '))}</small></td><td>${tk(r.paid)}</td><td>${tk(r.goodsCharged)}</td><td>${r.paid ? tk(r.goodsActual) + (r.estimated ? ' <small>est.</small>' : '') : '—'}</td><td>${r.diff === null ? '—' : sg(r.diff)}</td><td>${tk(r.fee)}</td><td>${r.shipDue ? tk(r.shipDue) : '—'}</td><td>${pill(r.status)}<br><small>${r.bought}/${r.items} bought</small></td></tr>`).join(''))}
+    <p class="lead2" style="margin-top:8px">Actual cost comes from the Purchase sheet (“What did it actually cost?” when you mark Bought). Until then the charged price is used as an estimate.</p></div>`;
+}
+async function addExp() {
+  try { await api('/api/admin/expenses', { day: $('eDay').value, category: $('eCat').value, amount: $('eAmt').value, currency: $('eCur').value, note: $('eNote').value, order: $('eOrd').value }); toast('Expense added'); loadMoney(); } catch (e) { toast(e.message); }
+}
+async function delExp(id) { if (!confirm('Delete this expense?')) return; await api(`/api/admin/expenses/${id}/delete`, {}); loadMoney(); }
+function csvMoney() {
+  if (!MONEY) return;
+  const rows = [['Order', 'Date', 'Customer', 'City', 'Stores', 'Status', 'Paid BDT', 'Total BDT', 'Products charged BDT', 'Actual cost BDT', 'Estimated', 'Saving BDT', 'WOOW fee BDT', 'Shipping due BDT']];
+  MONEY.rows.forEach((r) => rows.push([r.id, r.at.slice(0, 10), r.name, r.city, r.stores.join(' / '), r.status, r.paid, r.total, r.goodsCharged, r.goodsActual, r.estimated ? 'yes' : '', r.diff ?? '', r.fee, r.shipDue]));
+  rows.push([]); rows.push(['Expense date', 'Type', 'Amount', 'Currency', 'Note', 'Order']);
+  MONEY.expenses.forEach((e) => rows.push([e.day, e.category, e.amount, e.currency, e.note || '', e.order_id || '']));
+  const text = rows.map((r) => r.map((v) => '"' + String(v ?? '').replace(/"/g, '""') + '"').join(',')).join('\n');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['\ufeff' + text], { type: 'text/csv' })); a.download = 'woow-money-' + new Date().toISOString().slice(0, 10) + '.csv'; a.click();
+}
+
+load(); loadBuy().then(loadDash); setInterval(() => { load(); loadBuy(); if (!$('t-dash').hidden) loadDash(); }, 60000);

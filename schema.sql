@@ -11,3 +11,5 @@ CREATE TABLE IF NOT EXISTS zinc_calls (id INTEGER PRIMARY KEY AUTOINCREMENT, ts 
 CREATE INDEX IF NOT EXISTS idx_zinc_ts ON zinc_calls(ts);
 -- shared search cache: one paid Zinc search answers every customer for 6 hours
 CREATE TABLE IF NOT EXISTS search_cache (k TEXT PRIMARY KEY, data TEXT NOT NULL, ts INTEGER NOT NULL);
+-- back office: expenses (air freight, customs, warehouse, staff, courier, marketing, Zinc deposits…)
+CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, day TEXT NOT NULL, category TEXT NOT NULL, amount REAL NOT NULL, currency TEXT NOT NULL DEFAULT 'BDT', note TEXT, order_id TEXT, created_at TEXT NOT NULL);
