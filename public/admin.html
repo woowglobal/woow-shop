@@ -39,7 +39,10 @@ td{padding:12px;border-bottom:1px solid #F2F2F5;vertical-align:top}tr.r{cursor:p
         <label>Shipping + customs ৳ per kg<input class="inp" id="sKg" type="number"></label>
         <label>Default weight kg<input class="inp" id="sDef" type="number" step="0.1"></label>
         <label>Days from flight to Dhaka<input class="inp" id="sLand" type="number"></label>
+        <label>Packing weight added %<input class="inp" id="sPack" type="number" step="1"></label>
       </div>
+      <span class="lbl">Products that may have a customs brokerage charge (one per line)</span>
+      <textarea class="inp" id="sBrk" style="height:160px;padding:10px 12px"></textarea>
       <span class="lbl">WOOW flight days</span>
       <div class="days" id="sDays"></div>
       <button class="btn dk" style="margin-top:16px;max-width:240px" onclick="saveSet()">Save settings</button>

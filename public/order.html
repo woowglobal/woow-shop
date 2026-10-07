@@ -18,6 +18,7 @@
     <div class="err" id="fErr"></div>
   </div>
   <div id="out"></div>
+  <div id="hist"></div>
 </main>
 <script>
 const $ = (id) => document.getElementById(id);
@@ -33,7 +34,7 @@ async function find(id, phone) {
   const r = await fetch(`/api/track/${encodeURIComponent(id)}?phone=${encodeURIComponent(phone)}`);
   const d = await r.json();
   if (!r.ok) { $('fErr').textContent = d.error; $('fErr').style.display = 'block'; return; }
-  $('find').hidden = true; draw(d.order, phone);
+  $('find').hidden = true; draw(d.order, phone); saveMine(d.order.id, phone); loadHist(d.order.id, phone, d.order.id);
 }
 function draw(o, phone) {
   const paidish = !['awaiting_payment', 'bank_review', 'cancelled'].includes(o.status);
@@ -86,8 +87,26 @@ async function sendBank(id, phone) {
   const d = await r.json(); if (!r.ok) { $('bErr').textContent = d.error; $('bErr').style.display = 'block'; return; }
   find(id, phone);
 }
+// ── your orders (this phone) ──
+function saveMine(id, phone) {
+  try { const L = JSON.parse(localStorage.getItem('woowOrders') || '[]').filter((x) => x.id !== id); L.unshift({ id, phone }); localStorage.setItem('woowOrders', JSON.stringify(L.slice(0, 30))); } catch {}
+}
+const DOT = { quote_requested: '#AF52DE', awaiting_payment: '#C7C7CC', bank_review: '#FF9500', paid: '#34C759', purchasing: '#FFD400', purchased: '#007AFF', at_warehouse: '#5856D6', in_flight: '#5AC8FA', in_dhaka: '#AF52DE', delivered: '#1D1D1F', cancelled: '#8E8E93', problem: '#FF3B30' };
+async function loadHist(id, phone, current) {
+  try {
+    const r = await fetch(`/api/my-orders?id=${encodeURIComponent(id)}&phone=${encodeURIComponent(phone)}`); if (!r.ok) return;
+    const d = await r.json(), L = d.orders.filter((o) => o.id !== current);
+    if (!L.length) { $('hist').innerHTML = ''; return; }
+    $('hist').innerHTML = `<div class="card sec hist"><h3>${current ? 'Your other orders' : 'Your orders'} <small>${L.length}</small></h3>` + L.map((o) => `
+      <button class="ho" data-id="${o.id}"><img src="${esc(o.image || '')}" alt="" onerror="this.style.visibility='hidden'"><span class="hm"><b>${esc(o.title || o.id)}</b><small>${o.id} · ${new Date(o.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} · ${esc(o.store)}${o.more ? ' +' + o.more + ' more' : ''}</small></span>
+      <span class="hs"><span><i style="background:${DOT[o.status] || '#C7C7CC'}"></i>${esc(o.statusText)}</span><small>${o.amount_due ? tk(o.amount_due) : ''}</small></span><span class="ha">›</span></button>`).join('') + '</div>';
+    $('hist').querySelectorAll('.ho').forEach((b) => b.onclick = () => { history.replaceState(null, '', `/order?id=${b.dataset.id}&phone=${d.phone}`); find(b.dataset.id, d.phone); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+  } catch {}
+}
 (async () => {
   CFG = await (await fetch('/api/config')).json();
+  let mine = []; try { mine = JSON.parse(localStorage.getItem('woowOrders') || '[]'); } catch {}
+  if (!(P.get('id') && P.get('phone')) && mine.length) { $('fId').value = mine[0].id; $('fPh').value = mine[0].phone; loadHist(mine[0].id, mine[0].phone, null); }
   if (P.get('id') && P.get('phone')) { $('fId').value = P.get('id'); $('fPh').value = P.get('phone'); find(P.get('id'), P.get('phone')); }
 })();
 </script>

@@ -75,12 +75,12 @@ async function setSt(id) {
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 async function loadSet() {
   const { pricing: p } = await api('/api/admin/settings');
-  $('sRate').value = p.rate; $('sFee').value = p.feePercent; $('sMin').value = p.minFee; $('sKg').value = p.kgRate; $('sDef').value = p.defaultKg; $('sLand').value = p.dhakaDaysAfterFlight;
+  $('sRate').value = p.rate; $('sFee').value = p.feePercent; $('sMin').value = p.minFee; $('sKg').value = p.kgRate; $('sDef').value = p.defaultKg; $('sLand').value = p.dhakaDaysAfterFlight; $('sPack').value = p.packagingPercent ?? 10; $('sBrk').value = (p.brokerageList || []).join('\n');
   $('sDays').innerHTML = DAYS.map((d, i) => `<label><input type="checkbox" value="${i}" ${p.flightDays.includes(i) ? 'checked' : ''}>${d}</label>`).join('');
 }
 async function saveSet() {
   const flightDays = [...$('sDays').querySelectorAll('input:checked')].map((x) => +x.value);
-  try { await api('/api/admin/settings', { rate: $('sRate').value, feePercent: $('sFee').value, minFee: $('sMin').value, kgRate: $('sKg').value, defaultKg: $('sDef').value, dhakaDaysAfterFlight: $('sLand').value, flightDays }); toast('Settings saved'); } catch (e) { toast(e.message); }
+  try { await api('/api/admin/settings', { rate: $('sRate').value, feePercent: $('sFee').value, minFee: $('sMin').value, kgRate: $('sKg').value, defaultKg: $('sDef').value, dhakaDaysAfterFlight: $('sLand').value, packagingPercent: $('sPack').value, brokerageList: $('sBrk').value.split('\n'), flightDays }); toast('Settings saved'); } catch (e) { toast(e.message); }
 }
 document.querySelector('.tabs2').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b) return;

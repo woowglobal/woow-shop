@@ -5,6 +5,12 @@ export const DEFAULT_SETTINGS = {
   minFee: 250,          // minimum service fee in BDT
   kgRate: 1650,         // shipping + customs to Dhaka, BDT per kg
   defaultKg: 0.5,       // estimated weight when the store gives none
+  packagingPercent: 10, // seller's courier box adds weight: estimate = seller weight + 10%
+  brokerageList: [      // products that may have a customs brokerage charge in Dhaka (edit in Admin → Settings)
+    'Mobile phones and tablets', 'Laptops and computers', 'Smart watches and wearables', 'Cameras, drones and lenses',
+    'Perfume and cosmetics in large quantity', 'Vitamins, supplements and medicines', 'Baby formula and food',
+    'Branded watches, jewellery and gold', 'Power banks and items with large batteries', 'Car and motorcycle parts',
+    'Commercial quantity of any item (more than personal use)'],
   rateLockMinutes: 15,
   flightDays: [3, 6],   // WOOW flights: 0=Sun … 3=Wed, 6=Sat
   dhakaDaysAfterFlight: 3,
@@ -21,9 +27,10 @@ export async function getPricing(db) {
 
 export async function savePricing(db, p) {
   const next = await getPricing(db);
-  for (const k of ['rate', 'feePercent', 'minFee', 'kgRate', 'defaultKg', 'rateLockMinutes', 'dhakaDaysAfterFlight']) {
+  for (const k of ['rate', 'feePercent', 'minFee', 'kgRate', 'defaultKg', 'packagingPercent', 'rateLockMinutes', 'dhakaDaysAfterFlight']) {
     if (p[k] !== undefined && p[k] !== '' && !Number.isNaN(Number(p[k]))) next[k] = Number(p[k]);
   }
+  if (Array.isArray(p.brokerageList)) next.brokerageList = p.brokerageList.map((x) => String(x).trim().slice(0, 120)).filter(Boolean).slice(0, 40);
   if (Array.isArray(p.flightDays)) next.flightDays = p.flightDays.map(Number).filter((d) => d >= 0 && d <= 6);
   await db.prepare('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind('pricing', JSON.stringify(next)).run();
   return next;
@@ -38,11 +45,12 @@ export function quote(items, p) {
     kg += (it.kg || p.defaultKg) * it.qty;
     return { ...it, lineUsd: Math.round(lineUsd * 100) / 100, lineBdt: Math.round(lineUsd * p.rate) };
   });
-  kg = Math.ceil(kg * 10) / 10;
+  const sellerKg = Math.round(kg * 100) / 100;
+  kg = Math.ceil(kg * (1 + (p.packagingPercent ?? 10) / 100) * 10) / 10; // + packing box weight
   const product = Math.round(usd * p.rate);
   const fee = items.length ? Math.round(Math.max(p.minFee, product * p.feePercent / 100)) : 0;
   const shipping = Math.round(kg * p.kgRate);
-  return { lines, usd: Math.round(usd * 100) / 100, rate: p.rate, product, usTax: 0, fee, kg, shipping, total: product + fee + shipping, payNowSplit: product + fee };
+  return { lines, usd: Math.round(usd * 100) / 100, rate: p.rate, product, usTax: 0, fee, sellerKg, packagingPercent: p.packagingPercent ?? 10, kg, shipping, total: product + fee + shipping, payNowSplit: product + fee };
 }
 
 /** Delivery plan in Dhaka dates: warehouse date, next WOOW flight, Dhaka arrival, delivery window. */

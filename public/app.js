@@ -28,7 +28,7 @@ const THEME = {
 let curStore = null;
 const CAT_WORD = { Fashion: 'clothing', Electronics: 'electronics', Beauty: 'beauty skincare makeup', Health: 'vitamins supplements', Kids: 'kids toys', Home: 'home kitchen' };
 let cat = 'All';
-let CFG = null, RESULTS = [], cur = null, qty = 1, store = 'all', plan = 'full', method = 'bkash', lastQuote = null;
+let CFG = null, RESULTS = [], cur = null, qty = 1, store = 'all', plan = 'split', method = 'bkash', lastQuote = null;
 let CART = load();
 
 function load() { try { return JSON.parse(localStorage.getItem('woowCart') || '[]'); } catch { return []; } }
@@ -45,9 +45,10 @@ async function api(path, body) {
 function est(p, n = 1) {
   const item = (p.priceCents / 100) * n * CFG.rate;
   const fee = Math.max(CFG.minFee, item * CFG.feePercent / 100);
-  const kg = Math.ceil((p.kg || CFG.defaultKg) * n * 10) / 10;
+  const sellerKg = Math.round((p.kg || CFG.defaultKg) * n * 100) / 100;
+  const kg = Math.ceil(sellerKg * (1 + CFG.packagingPercent / 100) * 10) / 10; // + courier box
   const ship = kg * CFG.kgRate;
-  return { item, fee, kg, ship, total: item + fee + ship };
+  return { item, fee, sellerKg, kg, ship, total: item + fee + ship, listed: !!p.kg };
 }
 
 // ── delivery plan ──
@@ -146,7 +147,7 @@ async function fetchRow(storeId, q) {
   return remember(d.results || []);
 }
 function rowHtml(id, title, q, hero) {
-  return `<div class="row${hero ? ' sp-hero' : ''}" data-q="${esc(q)}"><div class="row-h">${hero ? `<div><h2>${esc(title)}</h2><p>Live prices from ${esc(curStore.n)}, shown delivered to Dhaka</p></div>` : `<b>${esc(title)}</b>`}<button onclick="storeSearch('${esc(q)}')">See all →</button></div><div class="rail" id="${id}">${'<div class="skel"></div>'.repeat(6)}</div></div>`;
+  return `<div class="srow${hero ? ' sp-hero' : ''}" data-q="${esc(q)}"><div class="row-h">${hero ? `<div><h2>${esc(title)}</h2><p>Live prices from ${esc(curStore.n)}, shown delivered to Dhaka</p></div>` : `<b>${esc(title)}</b>`}<button onclick="storeSearch('${esc(q)}')">See all →</button></div><div class="rail" id="${id}">${'<div class="skel"></div>'.repeat(6)}</div></div>`;
 }
 let rowObs = null;
 function openStore(id, push = true) {
@@ -175,7 +176,7 @@ function drawStoreHome() {
     try { const L = await fetchRow(curStore.id, en.target.dataset.q); rail.innerHTML = L.length ? L.slice(0, 16).map(card).join('') : '<div class="row-empty">Nothing here right now.</div>'; }
     catch (e) { rail.innerHTML = `<div class="row-empty">${esc(e.message)}</div>`; }
   }), { rootMargin: '300px' });
-  $('spBody').querySelectorAll('.row').forEach((r) => rowObs.observe(r));
+  $('spBody').querySelectorAll('.srow').forEach((r) => rowObs.observe(r));
 }
 async function storeSearch(q) {
   q = (q ?? $('spQ').value).trim();
@@ -220,7 +221,7 @@ async function loadCompare(p) {
     const s = STORES.find((x) => x.id === o.retailer) || { c: '#555', l: '?' }, c = est(o);
     return `<div class="co ${o.me ? 'me' : ''}">${i === 0 ? '<span class="best">Best price</span>' : ''}<img src="${esc(o.image || '')}" alt="">
       <div><div class="sn"><i style="background:${s.c}">${s.l}</i>${esc(o.store)}${o.me ? ' · viewing' : ''}</div><div class="t">${esc(o.title)}</div>
-      <div class="p"><b>${tk(c.total)}</b><small>${usd(o.priceCents)}</small></div>${i === 0 && all.length > 1 ? `<div class="save">Save ${tk(top - c.total)}</div>` : ''}</div>
+      <div class="p"><b>${tk(c.total)}</b><small>${usd(o.priceCents)}</small></div><div class="kgx">≈ ${c.kg} kg incl. ${CFG.packagingPercent}% packing · pay now ${tk(c.item + c.fee)}</div>${i === 0 && all.length > 1 ? `<div class="save">Save ${tk(top - c.total)}</div>` : ''}</div>
       <div class="acts"><button class="a1" data-add="${esc(o.url)}">Add to cart</button>${o.me ? '' : `<button class="a2" data-view="${esc(o.url)}">View</button>`}</div></div>`;
   }).join('');
   $('cmpN').textContent = all.length; $('cmpL').dataset.n = String(all.length); showCmp(!cmpMin);
@@ -260,6 +261,20 @@ function openItem(p) {
   upd(); go('item'); SEEN.set(p.url, p); loadCompare(p);
 }
 function q(d) { qty = Math.max(1, Math.min(9, qty + d)); $('dQ').textContent = qty; upd(); }
+function weightBox(c) {
+  return `<div class="wt"><div class="wl"><span>${c.listed ? 'Seller\'s weight' : 'Typical weight (seller didn\'t list)'}</span><b>${c.sellerKg} kg</b></div>
+  <div class="wl"><span>+ ${CFG.packagingPercent}% courier box &amp; packing</span><b>≈ ${c.kg} kg</b></div>
+  <span class="why">Why only an estimate? Weight is declared by the seller. The real box (packing, padding, courier carton) is weighed at our US warehouse, and that actual weight is final.</span></div>`;
+}
+function secondInvoice(c) {
+  return `<div class="inv2"><b>💡 Recommended: pay the product now</b>Pay ${tk(c.item + c.fee)} today. When your parcel arrives in Bangladesh, WOOW sends a <b style="display:inline">second invoice</b> for shipping by its real weight (now ≈ ${tk(c.ship)}). Clear and fair, no guessing.</div>
+  <div class="brk2">Some products may have a <b>customs brokerage charge</b> in Dhaka. <button onclick="showBrokerage()">See which products →</button></div>`;
+}
+function showBrokerage() {
+  $('brkList').innerHTML = (CFG.brokerageList || []).map((x) => `<li>${esc(x)}</li>`).join('');
+  $('brkWa').href = `https://wa.me/${CFG.whatsapp}?text=${encodeURIComponent('Hi WOOW, I want to know the customs brokerage charge for: ' + (cur ? cur.title + ' ' + cur.url : ''))}`;
+  $('brkM').hidden = false;
+}
 function upd() {
   const c = est(cur, qty);
   $('dBd').textContent = tk(c.total); $('dUs').textContent = `${usd(cur.priceCents * qty)} at ${cur.store} · rate ৳${CFG.rate}`;
@@ -267,6 +282,7 @@ function upd() {
   <div><span>US sales tax<small>Our Delaware warehouse</small></span><b class="free">৳0</b></div>
   <div><span>WOOW buying service<small>${CFG.feePercent}%, minimum ৳${CFG.minFee}</small></span><b>${tk(c.fee)}</b></div>
   <div><span>Shipping &amp; customs to Dhaka<small>Est. ${c.kg} kg × ৳${CFG.kgRate.toLocaleString('en-US')}</small></span><b>${tk(c.ship)}</b></div>`;
+  $('dExtra').innerHTML = weightBox(c) + secondInvoice(c);
   $('dPlan').innerHTML = planHtml(localPlan([cur.retailer]));
 }
 function addCart(show) {
@@ -289,7 +305,7 @@ function sumHtml(d, btn) {
   <div class="row" style="margin-top:8px"><span>Products (${'$' + t.usd.toFixed(2)})</span><b>${tk(t.product)}</b></div>
   <div class="row"><span>US sales tax</span><b class="free">৳0</b></div>
   <div class="row"><span>WOOW buying service</span><b>${tk(t.fee)}</b></div>
-  <div class="row"><span>Shipping &amp; customs · est. ${t.kg} kg</span><b>${tk(t.shipping)}</b></div>
+  <div class="row"><span>Shipping &amp; customs · est. ${t.kg} kg<small style="display:block;color:#86868B;font-size:11px">seller ${t.sellerKg} kg + ${t.packagingPercent}% packing · final by real weight</small></span><b>${tk(t.shipping)}</b></div>
   <div class="tot"><span>Total</span><b>${tk(t.total)}</b></div>${btn}${planHtml(d.delivery)}`;
 }
 async function rCart() {

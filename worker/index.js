@@ -154,7 +154,7 @@ async function handle(req, env, ctx) {
     const p = await getPricing(env.DB);
     return json({
       demo: { zinc: !env.ZINC_API_KEY, payments: !ssl.paymentsLive(env) }, rate: p.rate, feePercent: p.feePercent, minFee: p.minFee, kgRate: p.kgRate,
-      defaultKg: p.defaultKg, rateLockMinutes: p.rateLockMinutes, flightDays: p.flightDays, transitDays: p.transitDays, dhakaDaysAfterFlight: p.dhakaDaysAfterFlight,
+      defaultKg: p.defaultKg, packagingPercent: p.packagingPercent, brokerageList: p.brokerageList, whatsapp: env.WHATSAPP_NUMBER || '8801816369701', rateLockMinutes: p.rateLockMinutes, flightDays: p.flightDays, transitDays: p.transitDays, dhakaDaysAfterFlight: p.dhakaDaysAfterFlight,
       stores: zinc.SEARCH_RETAILERS.map((r) => ({ id: r, name: zinc.retailerName(r) })),
       bank: { name: env.BANK_ACCOUNT_NAME || 'WOOW Global (BD)', number: env.BANK_ACCOUNT_NUMBER || '—', branch: env.BANK_NAME_BRANCH || '—' },
     });
@@ -258,6 +258,15 @@ async function handle(req, env, ctx) {
     await updateOrder(env, o.id, { status: 'bank_review', payment: { method: 'bank', reference: ref, submitted: nowIso() } });
     await addEvent(env, o.id, 'Bank transfer submitted, ref ' + ref);
     return json({ ok: true });
+  }
+
+  // Customer's order history: proven by one order number + the same mobile.
+  if (path === '/api/my-orders') {
+    const phone = bdPhone(url.searchParams.get('phone')), id = String(url.searchParams.get('id') || '').toUpperCase();
+    const o = phone && (await env.DB.prepare('SELECT id FROM orders WHERE id=? AND phone=?').bind(id, phone).first());
+    if (!o) return bad('Order not found', 404);
+    const r = await env.DB.prepare('SELECT id,created_at,status,amount_due,amount_paid,items FROM orders WHERE phone=? ORDER BY created_at DESC LIMIT 30').bind(phone).all();
+    return json({ phone, orders: r.results.map((x) => { const it = J(x.items) || []; return { id: x.id, created_at: x.created_at, status: x.status, statusText: STATUS[x.status] || x.status, amount_due: x.amount_due, amount_paid: x.amount_paid, count: it.reduce((a, i) => a + (i.qty || 1), 0), title: it[0]?.title || '', store: it[0]?.store || '', image: it[0]?.image || null, more: Math.max(0, it.length - 1) }; }) });
   }
 
   if ((mm = path.match(/^\/api\/track\/([A-Za-z0-9-]+)$/))) {

@@ -72,7 +72,7 @@
     <aside class="card buy">
       <div class="tt">Price delivered to Dhaka</div>
       <div class="big" id="dBd">—</div><div class="ub" id="dUs"></div>
-      <div class="brk" id="dBrk"></div>
+      <div class="brk" id="dBrk"></div><div id="dExtra"></div>
       <button class="btn" onclick="addCart(true)">Add to cart</button>
       <button class="btn dk" onclick="addCart(false);go('pay')">Buy now · pay in ৳</button>
       <div id="dPlan"></div>
@@ -148,8 +148,8 @@
       </div>
       <div class="card sec"><h3>When to pay</h3>
         <div class="ops c2" id="plan">
-          <button class="op on" data-v="full"><span class="ck"></span><b>Pay all now</b><small>Product, fees and estimated shipping. Small weight difference settled on arrival.</small><span class="amt" id="pFull"></span></button>
-          <button class="op" data-v="split"><span class="ck"></span><b>Pay product now</b><small>Shipping &amp; customs paid when your box lands in Dhaka.</small><span class="amt" id="pSplit"></span></button>
+          <button class="op" data-v="full"><span class="ck"></span><b>Pay all now</b><small>Product, fees and estimated shipping. Difference from the real weight settled on arrival.</small><span class="amt" id="pFull"></span></button>
+          <button class="op on" data-v="split" style="position:relative"><span class="ck"></span><span class="rec">Recommended</span><b>Pay product now</b><small>Second invoice for shipping by real weight when your parcel arrives in Bangladesh.</small><span class="amt" id="pSplit"></span></button>
         </div>
       </div>
       <div class="card sec"><h3>Pay with <small>All in Taka</small></h3>
@@ -171,6 +171,13 @@
   <div id="cmpL"></div>
 </aside>
 <button class="cmp-tab" id="cmpTab" hidden>⚖️ Compare <em id="cmpN"></em></button>
+<div class="mdl" id="brkM" hidden onclick="if(event.target===this)this.hidden=true"><div class="mdl-b">
+  <h3>Customs brokerage charge</h3>
+  <p>These products may have an extra customs brokerage charge when they clear customs in Dhaka. The amount depends on the product and its value, so we tell you before you pay it.</p>
+  <ul id="brkList"></ul>
+  <p>Not sure about your product? Our customer care or GENI will help you.</p>
+  <div class="chat"><a class="wa" id="brkWa" target="_blank" rel="noopener">💬 Chat on WhatsApp</a><button class="gn2" onclick="document.getElementById('brkM').hidden=true">✨ Got it</button></div>
+</div></div>
 <div class="toast" id="toast"></div>
 <script src="/app.js"></script>
 </body>
