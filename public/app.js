@@ -90,8 +90,12 @@ async function doSearch() {
 }
 async function doLink() {
   const url = $('lnk').value.trim(); if (!url) return;
-  try { const d = await api('/api/link', { url }); RESULTS = [d.product, ...RESULTS]; openItem(d.product); }
-  catch (e) { toast(e.message); }
+  const btn = document.querySelector('#linkBox button'); btn.disabled = true; btn.textContent = 'Checking…';
+  try {
+    const d = await api('/api/link', { url });
+    if (d.manual) openQuote(d); else { RESULTS = [d.product, ...RESULTS]; openItem(d.product); }
+  } catch (e) { toast(e.message); }
+  btn.disabled = false; btn.textContent = 'Get price';
 }
 $('grid').addEventListener('click', (e) => { const b = e.target.closest('.pc'); if (b) openItem(RESULTS.find((p) => p.url === b.dataset.u)); });
 $('q').addEventListener('keydown', (e) => { if (e.key === 'Enter') doSearch(); });
@@ -119,8 +123,26 @@ $('tiles').addEventListener('click', (e) => {
   if (searchable(s.id)) { store = store === s.id ? 'all' : s.id; drawCats(); doSearch(); document.querySelector('.rh').scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
   // stores without search: open the store, customer pastes the product link back here
   window.open(s.url, '_blank', 'noopener'); setMode('link');
-  $('hint').innerHTML = `<b>${esc(s.n)}</b> opened in a new tab. Copy the product link from there and paste it above, then tap “Get price”.`;
+  $('hint').innerHTML = `<b>${esc(s.n)}</b> opened in a new tab. Copy the product link from there and paste it above, then tap “Get price”.` + (s.id === 'costco' ? ' No Costco membership needed — WOOW buys with ours.' : '');
 });
+
+// ── price quote (Costco and other stores without instant prices) ──
+function openQuote(d) {
+  $('qUrl').value = d.url; $('qTitle').value = ''; $('qUsd').value = ''; $('qQty').value = 1; $('qOpt').value = '';
+  $('qStore').textContent = d.store;
+  $('qMember').textContent = d.retailer === 'costco' ? 'Bought with WOOW\'s Costco membership' : 'Shipped to our Delaware warehouse';
+  try { const c = JSON.parse(localStorage.getItem('woowCustomer') || 'null'); if (c) { $('qName').value = c.name || ''; $('qPhone').value = c.phone || ''; $('qEmail').value = c.email || ''; $('qCity').value = c.city || 'Dhaka'; $('qAddr').value = c.address || ''; } } catch {}
+  $('qErr').style.display = 'none'; go('quote');
+}
+async function sendQuote() {
+  const btn = $('qBtn'); btn.disabled = true; btn.textContent = 'Sending…'; $('qErr').style.display = 'none';
+  const customer = { name: $('qName').value, phone: $('qPhone').value, email: $('qEmail').value, city: $('qCity').value, address: $('qAddr').value };
+  try { localStorage.setItem('woowCustomer', JSON.stringify(customer)); } catch {}
+  try {
+    const d = await api('/api/quote-request', { customer, item: { url: $('qUrl').value, title: $('qTitle').value, usd: $('qUsd').value, qty: $('qQty').value, option: $('qOpt').value } });
+    location.href = `/order?id=${d.orderId}&phone=${d.phone}&quote=1`;
+  } catch (e) { $('qErr').textContent = e.message; $('qErr').style.display = 'block'; btn.disabled = false; btn.textContent = 'Request price'; }
+}
 
 // ── product ──
 function openItem(p) {

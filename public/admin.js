@@ -2,7 +2,7 @@
 const $ = (id) => document.getElementById(id);
 const tk = (n) => '৳' + Math.round(n || 0).toLocaleString('en-US');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const COLORS = { awaiting_payment: '#C7C7CC', bank_review: '#FF9500', paid: '#34C759', purchasing: '#FFD400', purchased: '#007AFF', at_warehouse: '#5856D6', in_flight: '#5AC8FA', in_dhaka: '#AF52DE', delivered: '#1D1D1F', cancelled: '#8E8E93', problem: '#FF3B30' };
+const COLORS = { quote_requested: '#AF52DE', awaiting_payment: '#C7C7CC', bank_review: '#FF9500', paid: '#34C759', purchasing: '#FFD400', purchased: '#007AFF', at_warehouse: '#5856D6', in_flight: '#5AC8FA', in_dhaka: '#AF52DE', delivered: '#1D1D1F', cancelled: '#8E8E93', problem: '#FF3B30' };
 let ORDERS = [], STATUS = {};
 function toast(t) { const e = $('toast'); e.textContent = t; e.classList.add('on'); clearTimeout(window._t); window._t = setTimeout(() => e.classList.remove('on'), 2000); }
 async function api(path, body) {
@@ -45,6 +45,9 @@ async function openO(id) {
   ${o.items.map((i) => `<div class="ci"><img src="${esc(i.image || '')}" alt=""><div><b>${esc(i.title)}</b><small>${esc(i.store)} · Qty ${i.qty} · $${i.lineUsd.toFixed(2)}${i.option ? ' · ' + esc(i.option) : ''}</small><br><a href="${esc(i.url)}" target="_blank" rel="noopener" style="font-size:12px;color:#0066CC">Open in store ↗</a></div><b>${tk(i.lineBdt)}</b></div>`).join('')}
   <h3 style="font-size:14px;margin:16px 0 6px">Store purchases (Zinc)</h3>
   ${z.length ? z.map((g) => `<div class="kv"><span>${esc(g.retailer)}</span><b>${esc(g.status)}${g.error ? ' · ⚠ ' + esc(g.error) : ''}</b><span>Zinc id</span><b style="font-size:11px">${esc(g.id)}</b><span>Store order</span><b>${esc((g.merchant_order_ids || []).join(', ') || '—')}</b><span>Tracking</span><b>${esc((g.tracking || []).map((t) => t.carrier + ' ' + t.number).join(', ') || '—')}</b></div>`).join('') : '<p style="color:#86868B;font-size:13px;margin:0">Not placed yet.</p>'}
+  ${o.status === 'quote_requested' ? `<h3 style="font-size:14px;margin:16px 0 6px">💬 Send price quote</h3>
+   ${o.items.map((i, k) => `<div class="kv" style="grid-template-columns:1fr 110px 90px;align-items:end"><label style="font-size:11px;color:#86868B">Product name<input class="inp" id="qt${k}" value="${esc(i.title)}"></label><label style="font-size:11px;color:#86868B">Price each, USD<input class="inp" id="qu${k}" inputmode="decimal" value="${i.priceCents ? (i.priceCents / 100).toFixed(2) : ''}"></label><label style="font-size:11px;color:#86868B">Weight kg<input class="inp" id="qk${k}" inputmode="decimal" value="${i.kg || ''}"></label></div>${i.customerNote ? `<small style="color:#86868B">Customer note: ${esc(i.customerNote)}</small>` : ''}`).join('')}
+   <button class="btn" style="margin-top:6px" onclick="sendQuote('${o.id}',${o.items.length})">Send quote to customer →</button>` : ''}
   <div class="act">
     <button class="btn" onclick="act('${o.id}','confirm-payment')">✓ Confirm payment</button>
     <button class="btn dk" onclick="if(confirm('Place real store orders with Zinc now?'))act('${o.id}','place')">🛒 Buy with Zinc</button>
@@ -56,6 +59,10 @@ async function openO(id) {
   <h3 style="font-size:14px;margin:18px 0 8px">History</h3>
   ${events.map((e) => `<div class="ev">${esc(e.text)}<small>${new Date(e.at).toLocaleString()}</small></div>`).join('')}`;
   $('dr').classList.add('on');
+}
+async function sendQuote(id, n) {
+  const items = [...Array(n)].map((_, k) => ({ title: $('qt' + k).value, usd: $('qu' + k).value, kg: $('qk' + k).value }));
+  try { await api(`/api/admin/orders/${id}/set-prices`, { items }); toast('Quote sent — customer can pay now'); await load(); openO(id); } catch (e) { toast(e.message); }
 }
 async function act(id, a) {
   try { await api(`/api/admin/orders/${id}/${a}`, {}); toast('Done'); await load(); openO(id); } catch (e) { toast(e.message); }

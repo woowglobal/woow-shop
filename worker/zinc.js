@@ -2,9 +2,11 @@
 // Docs: https://www.zinc.com/docs  — key starts with "zn_" (Cloudflare secret ZINC_API_KEY)
 // Without the key the shop runs in DEMO mode with sample products.
 const BASE = 'https://api.zinc.com';
-const RETAILERS = { amazon: 'Amazon', walmart: 'Walmart', target: 'Target', bestbuy: 'Best Buy', costco: 'Costco', macys: "Macy's", homedepot: 'Home Depot', ebay: 'eBay' };
+const RETAILERS = { nike: 'Nike', ulta: 'Ulta', iherb: 'iHerb', carters: "Carter's", sephora: 'Sephora', amazon: 'Amazon', walmart: 'Walmart', target: 'Target', bestbuy: 'Best Buy', costco: 'Costco', macys: "Macy's", homedepot: 'Home Depot', ebay: 'eBay' };
 export const retailerName = (r) => RETAILERS[r] || r;
-export const SEARCH_RETAILERS = ['amazon', 'walmart', 'target', 'bestbuy', 'macys', 'costco'];
+export const SEARCH_RETAILERS = ['amazon', 'walmart', 'target', 'bestbuy', 'macys'];
+// Stores Zinc can't search/buy (e.g. Costco needs membership): customers paste the link, WOOW team quotes and buys by hand.
+export const MANUAL_RETAILERS = { costco: 'Costco', nike: 'Nike', ulta: 'Ulta', iherb: 'iHerb', carters: "Carter's", sephora: 'Sephora' };
 const CACHE_SEC = 30 * 60;
 
 async function zinc(env, path, opts = {}) {
@@ -49,6 +51,15 @@ export async function search(env, ctx, q, retailer) {
   return L;
 }
 
+export function storeFromUrl(url) {
+  try {
+    const h = new URL(url).hostname.replace(/^www\./, '').toLowerCase();
+    const known = { 'costco.com': 'costco', 'nike.com': 'nike', 'ulta.com': 'ulta', 'iherb.com': 'iherb', 'carters.com': 'carters', 'sephora.com': 'sephora', 'amazon.com': 'amazon', 'walmart.com': 'walmart', 'target.com': 'target', 'bestbuy.com': 'bestbuy', 'macys.com': 'macys', 'ebay.com': 'ebay' };
+    for (const [d, r] of Object.entries(known)) if (h === d || h.endsWith('.' + d)) return { retailer: r, store: retailerName(r) };
+    return { retailer: 'other', store: h };
+  } catch { return null; }
+}
+
 export function parseUrl(url) {
   try {
     const u = new URL(url), h = u.hostname.replace(/^www\./, ''); let m;
@@ -73,6 +84,7 @@ export async function product(env, url, { fresh = false, live = false } = {}) {
   }
   const cached = await recall(env, url, Infinity);
   const pu = parseUrl(url);
+  if (pu && MANUAL_RETAILERS[pu.retailer]) { if (cached && live) return cached; const e = new Error('manual'); e.manual = true; throw e; }
   if (!pu || !pu.retailer || !pu.id) {
     if (cached && live) return { ...cached, priceChecked: 'search' };
     throw new Error('This store link is not supported yet. Our team can buy it for you by hand.');

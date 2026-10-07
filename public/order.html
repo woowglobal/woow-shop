@@ -49,7 +49,18 @@ function draw(o, phone) {
       <button class="btn dk" style="margin-top:12px" onclick="sendBank('${o.id}','${esc(phone)}')">I have sent the money</button><div class="err" id="bErr"></div>
       <p class="note">We confirm bank payments within 2 working hours. GENI starts buying once confirmed.</p></div>`;
   } else if (o.status === 'awaiting_payment') {
-    head = `<div class="card sec"><h3>Payment not finished</h3><p style="margin:0;color:#86868B;font-size:13px">${P.get('failed') ? 'The payment did not go through. ' : ''}Please contact us on WhatsApp with order ${o.id} and we'll help you pay.</p></div>`;
+    head = `<div class="card sec"><h3>${o.events.some((e) => e.text.startsWith('Price quote ready')) ? 'Your price is ready' : 'Complete your payment'}</h3>
+      <p style="margin:0 0 12px;color:#86868B;font-size:13px">${P.get('failed') ? 'The last payment did not go through. ' : ''}Total <b style="color:#1D1D1F">${tk(o.amount_due - o.amount_paid)}</b> — product, WOOW fee and shipping to Dhaka.</p>
+      <div class="ops c4" id="payM">
+        <button class="op on" data-m="bkash"><span class="ck"></span><span class="lg" style="background:#E2136E">bKash</span><b>bKash</b></button>
+        <button class="op" data-m="nagad"><span class="ck"></span><span class="lg" style="background:#EC1C24">Nagad</span><b>Nagad</b></button>
+        <button class="op" data-m="card"><span class="ck"></span><span class="lg" style="background:#424245">💳</span><b>Card</b></button>
+        <button class="op" data-m="bank"><span class="ck"></span><span class="lg" style="background:#1D1D1F">🏦</span><b>Bank</b></button>
+      </div>
+      <button class="btn dk" style="margin-top:12px" onclick="payNow('${o.id}','${esc(phone)}')">Pay ${tk(o.amount_due - o.amount_paid)}</button><div class="err" id="pnErr"></div></div>`;
+  } else if (o.status === 'quote_requested') {
+    head = `<div class="card sec" style="text-align:center;padding:26px"><div style="font-size:40px">🔎</div><h1 style="font-size:22px;margin-top:8px">We're checking the price</h1>
+      <p class="lead" style="margin:6px 0 0">Order ${o.id}. Our team will send your full price in Taka, usually within a few hours. Come back to this page to pay.</p></div>`;
   }
   const hero = `<div class="card sec" style="text-align:center;padding:26px">
     <div class="okc"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#FFD400" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
@@ -60,8 +71,15 @@ function draw(o, phone) {
       const cls = i <= ix ? 'd' : i === ix + 1 && o.status !== 'delivered' ? 'c' : '';
       return `<li class="${cls}"><i>${cls === 'd' ? '✓' : i + 1}</i><div><b>${s[1]}</b><small>${dates[s[0]] || ''}</small></div></li>`;
     }).join('') + '</ul>' + (o.merchantOrders.length ? `<p class="note" style="text-align:left">Store order numbers: ${o.merchantOrders.map(esc).join(', ')}</p>` : '') + '</div>';
-  const items = `<div class="card sec"><h3>Items</h3>${o.items.map((i) => `<div class="ci"><img src="${esc(i.image || '')}" alt=""><div><b>${esc(i.title)}</b><small>${esc(i.store)} · Qty ${i.qty}</small></div><b>${tk(i.lineBdt)}</b></div>`).join('')}</div>`;
-  $('out').innerHTML = head + hero + tl + items;
+  const items = `<div class="card sec"><h3>Items</h3>${o.items.map((i) => `<div class="ci"><img src="${esc(i.image || '')}" alt=""><div><b>${esc(i.title)}</b><small>${esc(i.store)} · Qty ${i.qty}</small></div><b>${i.lineBdt ? tk(i.lineBdt) : '—'}</b></div>`).join('')}</div>`;
+  $('out').innerHTML = o.status === 'quote_requested' ? head + items : head + hero + tl + items;
+  const pm = $('payM'); if (pm) pm.addEventListener('click', (e) => { const b = e.target.closest('.op'); if (!b) return; pm.querySelectorAll('.op').forEach((x) => x.classList.toggle('on', x === b)); });
+}
+async function payNow(id, phone) {
+  const m = document.querySelector('#payM .op.on').dataset.m;
+  const r = await fetch(`/api/orders/${id}/pay`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, method: m }) });
+  const d = await r.json(); if (!r.ok) { $('pnErr').textContent = d.error; $('pnErr').style.display = 'block'; return; }
+  if (d.next.type === 'redirect') location.href = d.next.url; else find(id, phone);
 }
 async function sendBank(id, phone) {
   const r = await fetch(`/api/orders/${id}/bank`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, reference: $('bRef').value }) });

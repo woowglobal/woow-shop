@@ -5,7 +5,7 @@ import * as zinc from './zinc.js';
 import * as ssl from './sslcommerz.js';
 
 const STATUS = {
-  awaiting_payment: 'Waiting for payment', bank_review: 'Checking your bank transfer', paid: 'Paid — GENI will buy soon',
+  quote_requested: 'WOOW is checking the price', awaiting_payment: 'Waiting for payment', bank_review: 'Checking your bank transfer', paid: 'Paid — GENI will buy soon',
   purchasing: 'GENI is buying from the store', purchased: 'Bought — on the way to our US warehouse',
   at_warehouse: 'At WOOW US warehouse', in_flight: 'On the WOOW flight', in_dhaka: 'In Dhaka, clearing customs',
   delivered: 'Delivered', cancelled: 'Cancelled', problem: 'Needs attention',
@@ -83,6 +83,11 @@ async function placeWithZinc(env, order) {
   for (const it of order.items) (groups[it.retailer] ||= []).push(it);
   const results = [];
   for (const [retailer, items] of Object.entries(groups)) {
+    if (items.every((i) => i.manual) || zinc.MANUAL_RETAILERS[retailer] || retailer === 'other') {
+      results.push({ retailer, id: null, status: 'buy_by_hand', merchant_order_ids: [], tracking: [] });
+      await addEvent(env, order.id, `${zinc.retailerName(retailer)}: buy by hand (not available on Zinc)`);
+      continue;
+    }
     const done = order.zinc?.groups?.find((g) => g.retailer === retailer && g.id && !['order_failed', 'cancelled'].includes(g.status));
     if (done) { results.push(done); continue; }
     const r = await zinc.placeOrder(env, { orderId: order.id, retailer, items });
@@ -96,6 +101,7 @@ async function refreshZinc(env, order) {
   if (!order.zinc?.groups?.length) return order;
   const groups = [];
   for (const g of order.zinc.groups) {
+    if (!g.id) { groups.push(g); continue; }
     try {
       const z = await zinc.getZincOrder(env, g.id);
       const tracking = (z.tracking_numbers || []).map((t) => ({ carrier: t.carrier, number: t.number || t.tracking_number, status: t.status }));
@@ -104,7 +110,7 @@ async function refreshZinc(env, order) {
     } catch (e) { groups.push({ ...g, error: e.message }); }
   }
   let status = order.status;
-  if (status === 'purchasing' && groups.every((g) => g.status === 'order_placed')) status = 'purchased';
+  if (status === 'purchasing' && groups.every((g) => ['order_placed', 'buy_by_hand'].includes(g.status)) && groups.some((g) => g.status === 'order_placed')) status = 'purchased';
   if (groups.some((g) => ['order_failed', 'cancelled', 'cancelled_by_retailer'].includes(g.status))) status = 'problem';
   return updateOrder(env, order.id, { zinc: { groups }, status });
 }
@@ -161,8 +167,15 @@ async function handle(req, env, ctx) {
 
   if (path === '/api/link' && m === 'POST') {
     if (limited(req, 'l', 20, 60000)) return bad('Too many requests, please wait a moment.', 429);
-    const p = await zinc.product(env, String((await body(req)).url || ''), { fresh: true });
-    return p ? json({ product: p }) : bad('Product not found', 404);
+    const u = String((await body(req)).url || '').trim();
+    const where = zinc.storeFromUrl(u);
+    if (!where) return bad('Please paste a full product link (starting with https://).');
+    try {
+      const p = await zinc.product(env, u, { fresh: true });
+      if (p && p.priceCents) return json({ product: p });
+    } catch (e) { if (!e.manual) console.log('link lookup failed', e.message); }
+    // Not available automatically (e.g. Costco): offer a price quote from the WOOW team.
+    return json({ manual: true, url: u, retailer: where.retailer, store: where.store });
   }
 
   if (path === '/api/quote' && m === 'POST') {
@@ -197,7 +210,41 @@ async function handle(req, env, ctx) {
     return json({ orderId: id, next: { type: 'redirect', url: p.url } });
   }
 
+  // Customer asks WOOW for a price (stores we can't price automatically, e.g. Costco).
+  if (path === '/api/quote-request' && m === 'POST') {
+    if (limited(req, 'q', 6, 60000)) return bad('Too many requests, please wait a moment.', 429);
+    const b = await body(req), c = b.customer || {}, phone = bdPhone(c.phone), it = b.item || {};
+    if (!c.name || String(c.name).trim().length < 2) return bad('Please enter your name.');
+    if (!phone) return bad('Please enter a valid Bangladeshi mobile number (01XXXXXXXXX).');
+    if (!c.address || String(c.address).trim().length < 6) return bad('Please enter your delivery address.');
+    const where = zinc.storeFromUrl(String(it.url || ''));
+    if (!where) return bad('Please paste a full product link.');
+    const qty = Math.max(1, Math.min(99, parseInt(it.qty, 10) || 1));
+    const usd = Math.max(0, Math.min(20000, Number(it.usd) || 0));
+    const item = { url: String(it.url).slice(0, 600), retailer: where.retailer, store: where.store, title: String(it.title || 'Product from ' + where.store).trim().slice(0, 160), image: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="200" height="200" fill="#F5F5F7"/><text x="100" y="125" font-size="80" text-anchor="middle">🛍️</text></svg>'), priceCents: Math.round(usd * 100), kg: null, qty, option: String(it.option || '').slice(0, 60), manual: true, customerNote: String(it.note || '').slice(0, 300) };
+    const pr = await getPricing(env.DB), q = quote([item], pr), id = await newOrderId(env), t = nowIso();
+    const customer = { name: String(c.name).trim().slice(0, 80), phone, email: String(c.email || '').trim().slice(0, 120), address: String(c.address).trim().slice(0, 300), city: String(c.city || 'Dhaka').trim().slice(0, 60) };
+    await env.DB.prepare('INSERT INTO orders (id,created_at,updated_at,status,phone,customer,items,totals,plan,method,amount_due,delivery) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
+      .bind(id, t, t, 'quote_requested', phone, JSON.stringify(customer), JSON.stringify(q.lines), JSON.stringify(q), 'full', 'bkash', 0, JSON.stringify(deliveryPlan([where.retailer], pr))).run();
+    await addEvent(env, id, `Price quote requested (${where.store})`);
+    return json({ orderId: id, phone });
+  }
+
   let mm;
+  // Pay an existing order (after a quote, or a payment that didn't finish).
+  if ((mm = path.match(/^\/api\/orders\/([A-Z0-9-]+)\/pay$/)) && m === 'POST') {
+    const b = await body(req), o = await getOrder(env, mm[1]);
+    if (!o || o.phone !== bdPhone(b.phone)) return bad('Order not found', 404);
+    if (o.status !== 'awaiting_payment' || o.amount_due <= o.amount_paid) return bad('This order is not waiting for payment.');
+    const method = ['bkash', 'nagad', 'card', 'bank'].includes(b.method) ? b.method : 'bkash';
+    await updateOrder(env, o.id, { method });
+    const due = o.amount_due - o.amount_paid;
+    if (method === 'bank') return json({ next: { type: 'bank' } });
+    if (!ssl.paymentsLive(env)) return json({ next: { type: 'redirect', url: `/pay-demo?order=${o.id}&phone=${o.phone}&method=${method}` } });
+    const p = await ssl.startPayment(env, origin, o, due);
+    await updateOrder(env, o.id, { payment: { ...(o.payment || {}), tranId: p.tranId, method } });
+    return json({ next: { type: 'redirect', url: p.url } });
+  }
   if ((mm = path.match(/^\/api\/orders\/([A-Z0-9-]+)\/bank$/)) && m === 'POST') {
     const b = await body(req), o = await getOrder(env, mm[1]);
     if (!o || o.phone !== bdPhone(b.phone)) return bad('Order not found', 404);
@@ -277,6 +324,15 @@ async function adminApi(req, env, ctx, path, m) {
     return json({ order: await placeWithZinc(env, o) });
   }
   if (action === 'refresh') return json({ order: await refreshZinc(env, o) });
+  if (action === 'set-prices') {
+    const pr = await getPricing(env.DB), list = Array.isArray(b.items) ? b.items : [];
+    const items = o.items.map((it, i) => ({ ...it, priceCents: Math.round((Number(list[i]?.usd) || it.priceCents / 100) * 100), kg: Number(list[i]?.kg) || it.kg || null, title: String(list[i]?.title || it.title).slice(0, 160) }));
+    if (items.some((i) => !i.priceCents)) return bad('Enter a price for every item.');
+    const q = quote(items.map(({ lineUsd, lineBdt, ...x }) => x), pr);
+    const n = await updateOrder(env, o.id, { items: q.lines, totals: q, amount_due: o.plan === 'split' ? q.payNowSplit : q.total, status: 'awaiting_payment', delivery: deliveryPlan(items.map((i) => i.retailer), pr) });
+    await addEvent(env, o.id, `Price quote ready: ৳${q.total.toLocaleString('en-US')}`);
+    return json({ order: n });
+  }
   if (action === 'status') {
     const s = String(b.status || '');
     if (!STATUS[s]) return bad('Unknown status');

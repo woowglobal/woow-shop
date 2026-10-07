@@ -68,6 +68,46 @@
   </div>
 </section>
 
+<!-- QUOTE (stores without instant price, e.g. Costco) -->
+<section class="v" id="v-quote">
+  <button class="bk" onclick="go('browse')">← Back</button>
+  <div class="two">
+    <div>
+      <div class="card sec">
+        <h3>Get a price from WOOW <small id="qStore"></small></h3>
+        <p class="lead" id="qLead" style="margin:-4px 0 14px">Our team checks this product and sends you the full price in Taka, usually within a few hours. You pay only after you accept.</p>
+        <div class="fg">
+          <label class="full">Product link<input class="inp" id="qUrl" readonly></label>
+          <label class="full">Product name<input class="inp" id="qTitle" placeholder="e.g. Kirkland Signature Vitamin D3, 600 softgels"></label>
+          <label>Price you see in USD (optional)<input class="inp" id="qUsd" inputmode="decimal" placeholder="e.g. 24.99"></label>
+          <label>Quantity<input class="inp" id="qQty" type="number" min="1" max="99" value="1"></label>
+          <label class="full">Size / colour / note (optional)<input class="inp" id="qOpt" maxlength="200"></label>
+        </div>
+      </div>
+      <div class="card sec"><h3>Your details</h3>
+        <div class="fg">
+          <label>Full name<input class="inp" id="qName" autocomplete="name"></label>
+          <label>Mobile<input class="inp" id="qPhone" inputmode="tel" placeholder="01XXXXXXXXX" autocomplete="tel"></label>
+          <label>Email (optional)<input class="inp" id="qEmail" type="email"></label>
+          <label>City<input class="inp" id="qCity" value="Dhaka"></label>
+          <label class="full">Full address<textarea class="inp" id="qAddr" placeholder="House, road, area"></textarea></label>
+        </div>
+      </div>
+    </div>
+    <aside class="card buy">
+      <div class="tt">How it works</div>
+      <ul class="tl" style="margin-top:10px">
+        <li><i>1</i><div><b>Send this request</b><small>Free, no payment now</small></div></li>
+        <li><i>2</i><div><b>WOOW sends your price</b><small>Product, fees, shipping to Dhaka</small></div></li>
+        <li><i>3</i><div><b>Pay with bKash, Nagad or bank</b><small>On your order page</small></div></li>
+        <li><i>4</i><div><b>We buy it and fly it to you</b><small id="qMember"></small></div></li>
+      </ul>
+      <button class="btn dk" id="qBtn" onclick="sendQuote()">Request price</button>
+      <div class="err" id="qErr"></div>
+    </aside>
+  </div>
+</section>
+
 <!-- CART -->
 <section class="v" id="v-cart">
   <button class="bk" onclick="go('browse')">← Continue shopping</button>
