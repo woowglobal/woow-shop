@@ -17,6 +17,15 @@ const STORES = [
   { id: 'iherb', n: 'iHerb', l: 'i', c: '#458500', cats: ['Health', 'Beauty'], url: 'https://www.iherb.com' },
   { id: 'carters', n: "Carter's", l: 'c', c: '#00A3E0', cats: ['Kids', 'Fashion'], url: 'https://www.carters.com' },
 ];
+// Store pages: colours echo each store, rows are live Zinc searches (cached 30 min).
+const THEME = {
+  amazon: { sb: '#131921', sf: '#fff', sa: '#FF9900', sat: '#131921', sh: '#E3F0FF', hero: ['Today\'s picks', 'best sellers'], rows: [['Beauty & skincare', 'skincare'], ['Headphones & audio', 'headphones'], ['Vitamins & health', 'vitamins'], ['Home & kitchen', 'kitchen'], ['Fashion', 'women fashion'], ['Kids & toys', 'toys']] },
+  walmart: { sb: '#0071DC', sf: '#fff', sa: '#FFC220', sat: '#1D1D1F', sh: '#E6F1FC', hero: ['Top deals', 'deals'], rows: [['Electronics', 'headphones'], ['Home', 'home'], ['Beauty', 'beauty'], ['Toys', 'toys'], ['Clothing', 'clothing'], ['Health', 'vitamins']] },
+  target: { sb: '#FFFFFF', sf: '#1D1D1F', sa: '#CC0000', sat: '#fff', sh: '#DDF5F5', light: true, hero: ['Trending now', 'best sellers'], rows: [['Beauty', 'beauty'], ['Home', 'home decor'], ['Toys', 'toys'], ['Clothing', 'clothing'], ['Health', 'vitamins'], ['Tech', 'headphones']] },
+  macys: { sb: '#000000', sf: '#fff', sa: '#E21A2C', sat: '#fff', sh: '#F6E9EA', hero: ['Signature picks', 'women'], rows: [['Women', 'women dresses'], ['Men', 'men shirts'], ['Beauty & fragrance', 'perfume'], ['Shoes', 'shoes'], ['Handbags', 'handbags'], ['Home', 'bedding']] },
+  bestbuy: { sb: '#0046BE', sf: '#fff', sa: '#FFE000', sat: '#1D1D1F', sh: '#E8EEFB', hero: ['Top deals', 'deals'], rows: [['Headphones', 'headphones'], ['Laptops', 'laptop'], ['TV & home theater', 'tv'], ['Phones & tablets', 'tablet'], ['Gaming', 'gaming'], ['Smart home', 'smart home']] },
+};
+let curStore = null;
 const CAT_WORD = { Fashion: 'clothing', Electronics: 'electronics', Beauty: 'beauty skincare makeup', Health: 'vitamins supplements', Kids: 'kids toys', Home: 'home kitchen' };
 let cat = 'All';
 let CFG = null, RESULTS = [], cur = null, qty = 1, store = 'all', plan = 'full', method = 'bkash', lastQuote = null;
@@ -72,9 +81,10 @@ function localPlan(retailers) {
 // ── browse ──
 function card(p) {
   const c = est(p);
-  return `<button class="pc" data-u="${esc(p.url)}"><div class="pim"><span class="chip">${esc(p.store)}</span>${p.image ? `<img src="${esc(p.image)}" alt="" loading="lazy">` : ''}</div>
+  const off = p.listPriceCents && p.listPriceCents > p.priceCents ? Math.round((1 - p.priceCents / p.listPriceCents) * 100) : 0;
+  return `<button class="pc" data-u="${esc(p.url)}"><div class="pim"><span class="chip">${esc(p.store)}</span>${p.image ? `<img src="${esc(p.image)}" alt="" loading="lazy">` : ''}${off >= 5 ? `<span class="off">${off}% off</span>` : ''}</div>
   <div class="pb"><div class="nm">${esc(p.title)}</div>${p.stars ? `<div class="st">★ ${p.stars} <span>(${(p.reviews || 0).toLocaleString('en-US')})</span></div>` : ''}
-  <div class="bd">${tk(c.total)}</div><div class="us">${usd(p.priceCents)} at ${esc(p.store)}</div><span class="tg">Delivered to Dhaka</span></div></button>`;
+  <div class="bd">${tk(c.total)}</div><div class="us">${usd(p.priceCents)} at ${esc(p.store)}${off >= 5 ? `<span class="was">${usd(p.listPriceCents)}</span>` : ''}</div><span class="tg">Delivered to Dhaka</span></div></button>`;
 }
 async function doSearch() {
   const typed = $('q').value.trim(), q = typed || (cat !== 'All' ? CAT_WORD[cat] : '');
@@ -83,7 +93,7 @@ async function doSearch() {
   $('grid').innerHTML = '<div class="skel"></div>'.repeat(8); $('rn').textContent = 'Searching…';
   try {
     const d = await api(`/api/search?q=${encodeURIComponent(q)}&store=${searchable(store) ? store : 'all'}`);
-    RESULTS = d.results;
+    RESULTS = remember(d.results);
     $('rn').textContent = RESULTS.length + ' results';
     $('grid').innerHTML = RESULTS.length ? RESULTS.map(card).join('') : '<div class="card empty">No matches. Try another word, or paste a product link.</div>';
   } catch (e) { $('grid').innerHTML = `<div class="card empty">${esc(e.message)}</div>`; $('rn').textContent = ''; }
@@ -97,7 +107,9 @@ async function doLink() {
   } catch (e) { toast(e.message); }
   btn.disabled = false; btn.textContent = 'Get price';
 }
-$('grid').addEventListener('click', (e) => { const b = e.target.closest('.pc'); if (b) openItem(RESULTS.find((p) => p.url === b.dataset.u)); });
+const SEEN = new Map();
+function remember(L) { L.forEach((p) => SEEN.set(p.url, p)); return L; }
+document.addEventListener('click', (e) => { const b = e.target.closest('.pc'); if (b && (b.closest('#grid') || b.closest('#v-store'))) openItem(SEEN.get(b.dataset.u) || RESULTS.find((p) => p.url === b.dataset.u)); });
 $('q').addEventListener('keydown', (e) => { if (e.key === 'Enter') doSearch(); });
 $('lnk').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLink(); });
 function setMode(m) {
@@ -120,10 +132,65 @@ $('cats').addEventListener('click', (e) => {
 $('tiles').addEventListener('click', (e) => {
   const b = e.target.closest('.tile'); if (!b) return;
   const s = STORES.find((x) => x.id === b.dataset.st);
-  if (searchable(s.id)) { store = store === s.id ? 'all' : s.id; drawCats(); doSearch(); document.querySelector('.rh').scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+  if (searchable(s.id) && THEME[s.id]) { openStore(s.id); return; }
   // stores without search: open the store, customer pastes the product link back here
   window.open(s.url, '_blank', 'noopener'); setMode('link');
   $('hint').innerHTML = `<b>${esc(s.n)}</b> opened in a new tab. Copy the product link from there and paste it above, then tap “Get price”.` + (s.id === 'costco' ? ' No Costco membership needed — WOOW buys with ours.' : '');
+});
+
+// ── store pages ──
+async function fetchRow(storeId, q) {
+  const d = await api(`/api/search?q=${encodeURIComponent(q)}&store=${storeId}`);
+  return remember(d.results || []);
+}
+function rowHtml(id, title, q, hero) {
+  return `<div class="row${hero ? ' sp-hero' : ''}" data-q="${esc(q)}"><div class="row-h">${hero ? `<div><h2>${esc(title)}</h2><p>Live prices from ${esc(curStore.n)}, shown delivered to Dhaka</p></div>` : `<b>${esc(title)}</b>`}<button onclick="storeSearch('${esc(q)}')">See all →</button></div><div class="rail" id="${id}">${'<div class="skel"></div>'.repeat(6)}</div></div>`;
+}
+let rowObs = null;
+function openStore(id, push = true) {
+  const s = STORES.find((x) => x.id === id), t = THEME[id]; if (!s || !t) return;
+  curStore = s; store = id;
+  const band = $('spBand');
+  ['sb', 'sf', 'sa', 'sat'].forEach((k) => band.style.setProperty('--' + k, t[k]));
+  $('spBody').style.setProperty('--sh', t.sh);
+  band.classList.toggle('sp-light', !!t.light);
+  $('spLogo').textContent = s.l; $('spName').textContent = s.n;
+  $('spQ').placeholder = `Search ${s.n}`; $('spQ').value = '';
+  $('spCats').innerHTML = [['Home', ''], ...t.rows].map(([n, q], i) => `<button class="${i ? '' : 'on'}" data-q="${esc(q)}">${esc(n)}</button>`).join('');
+  drawStoreHome();
+  document.querySelectorAll('.v').forEach((x) => x.classList.toggle('on', x.id === 'v-store'));
+  window.scrollTo({ top: 0 });
+  if (push) history.pushState({ v: 'store', s: id }, '', '#store=' + id);
+}
+function drawStoreHome() {
+  const t = THEME[curStore.id];
+  $('spBody').innerHTML = rowHtml('r0', t.hero[0], t.hero[1], true) + t.rows.map(([n, q], i) => rowHtml('r' + (i + 1), n, q)).join('');
+  if (rowObs) rowObs.disconnect();
+  rowObs = new IntersectionObserver((ents) => ents.forEach(async (en) => {
+    if (!en.isIntersecting) return; rowObs.unobserve(en.target);
+    const rail = en.target.querySelector('.rail');
+    try { const L = await fetchRow(curStore.id, en.target.dataset.q); rail.innerHTML = L.length ? L.slice(0, 16).map(card).join('') : '<div class="row-empty">Nothing here right now.</div>'; }
+    catch (e) { rail.innerHTML = `<div class="row-empty">${esc(e.message)}</div>`; }
+  }), { rootMargin: '300px' });
+  $('spBody').querySelectorAll('.row').forEach((r) => rowObs.observe(r));
+}
+async function storeSearch(q) {
+  q = (q ?? $('spQ').value).trim();
+  if (!q) { drawStoreHome(); return; }
+  $('spQ').value = q;
+  $('spCats').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.q === q));
+  $('spBody').innerHTML = `<div class="rh" style="margin-top:0"><b>Results for “${esc(q)}” at ${esc(curStore.n)}</b><small id="spN">Searching…</small></div><div class="grid" id="spGrid">${'<div class="skel"></div>'.repeat(8)}</div>`;
+  try {
+    const L = await fetchRow(curStore.id, q);
+    $('spN').textContent = L.length + ' results';
+    $('spGrid').innerHTML = L.length ? L.map(card).join('') : `<div class="card empty">No matches at ${esc(curStore.n)}. Try another word, or paste a product link.</div>`;
+  } catch (e) { $('spGrid').innerHTML = `<div class="card empty">${esc(e.message)}</div>`; }
+}
+$('spQ').addEventListener('keydown', (e) => { if (e.key === 'Enter') storeSearch(); });
+$('spCats').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  $('spCats').querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
+  if (!b.dataset.q) { $('spQ').value = ''; drawStoreHome(); } else storeSearch(b.dataset.q);
 });
 
 // ── price quote (Costco and other stores without instant prices) ──
@@ -146,7 +213,7 @@ async function sendQuote() {
 
 // ── product ──
 function openItem(p) {
-  if (!p) return; cur = p; qty = 1; $('dQ').textContent = 1; $('dOpt').value = '';
+  if (!p) return; window._from = document.querySelector('#v-store.on') ? 'store' : 'browse'; cur = p; qty = 1; $('dQ').textContent = 1; $('dOpt').value = '';
   $('dImg').src = p.image || ''; $('dNm').textContent = p.title; $('dLink').href = p.url.startsWith('https://demo.') ? '#' : p.url;
   $('dSrc').innerHTML = `<b>${esc(p.store)}</b>Sold and shipped in the USA`;
   $('dSt').innerHTML = p.stars ? `★ ${p.stars} <span>(${(p.reviews || 0).toLocaleString('en-US')} ratings)</span>` : '';
@@ -241,7 +308,8 @@ function go(v) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
   if (history.state?.v !== v) history.pushState({ v }, '', v === 'browse' ? '/' : '#' + v);
 }
-window.addEventListener('popstate', (e) => go(e.state?.v || 'browse'));
+window.addEventListener('hashchange', () => { const h = location.hash.slice(1); if (h.startsWith('store=')) openStore(h.slice(6), false); });
+window.addEventListener('popstate', (e) => { if (e.state?.v === 'store') openStore(e.state.s, false); else go(e.state?.v || 'browse'); });
 
 (async function init() {
   CFG = await api('/api/config');
@@ -249,5 +317,5 @@ window.addEventListener('popstate', (e) => go(e.state?.v || 'browse'));
   if (CFG.demo.zinc || CFG.demo.payments) { $('demoBar').hidden = false; $('demoBar').textContent = 'DEMO MODE · ' + [CFG.demo.zinc && 'sample products', CFG.demo.payments && 'test payments'].filter(Boolean).join(' · ') + ' · add your keys in Cloudflare (Settings → Variables and Secrets) to go live'; }
   try { const c = JSON.parse(localStorage.getItem('woowCustomer') || 'null'); if (c) { $('cName').value = c.name || ''; $('cPhone').value = c.phone || ''; $('cEmail').value = c.email || ''; $('cCity').value = c.city || 'Dhaka'; $('cAddr').value = c.address || ''; } } catch {}
   save(); doSearch();
-  const h = location.hash.slice(1); if (h === 'cart' || h === 'pay') go(h);
+  const h = location.hash.slice(1); if (h === 'cart' || h === 'pay') go(h); else if (h.startsWith('store=')) openStore(h.slice(6), false);
 })();

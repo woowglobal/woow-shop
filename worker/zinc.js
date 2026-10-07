@@ -34,6 +34,8 @@ async function recall(env, url, maxAgeMs = CACHE_SEC * 1000) {
 const normalize = (r) => ({
   url: r.url, retailer: r.retailer, store: retailerName(r.retailer), title: r.title, priceCents: Number(r.price) || 0,
   image: r.image || null, stars: r.stars ?? null, reviews: r.num_reviews ?? null, brand: r.brand ?? null, available: r.available ?? true,
+  listPriceCents: Number(r.list_price ?? r.original_price ?? r.strikethrough_price ?? r.was_price ?? 0) || null,
+  freeShipping: r.free_shipping ?? null,
 });
 
 export async function search(env, ctx, q, retailer) {
@@ -179,5 +181,7 @@ function demoCatalog() {
 }
 function demoSearch(q, retailer) {
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
-  return demoCatalog().filter((p) => (!retailer || retailer === 'all' || p.retailer === retailer) && (!words.length || words.some((w) => p.title.toLowerCase().includes(w))));
+  const inStore = demoCatalog().filter((p) => !retailer || retailer === 'all' || p.retailer === retailer);
+  const hit = inStore.filter((p) => !words.length || words.some((w) => p.title.toLowerCase().includes(w)));
+  return hit.length ? hit : inStore; // demo: always show something
 }
