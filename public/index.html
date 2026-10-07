@@ -172,11 +172,12 @@
 </aside>
 <button class="cmp-tab" id="cmpTab" hidden>⚖️ Compare <em id="cmpN"></em></button>
 <div class="mdl" id="brkM" hidden onclick="if(event.target===this)this.hidden=true"><div class="mdl-b">
-  <h3>Customs brokerage charge</h3>
-  <p>These products may have an extra customs brokerage charge when they clear customs in Dhaka. The amount depends on the product and its value, so we tell you before you pay it.</p>
-  <ul id="brkList"></ul>
-  <p>Not sure about your product? Our customer care or GENI will help you.</p>
-  <div class="chat"><a class="wa" id="brkWa" target="_blank" rel="noopener">💬 Chat on WhatsApp</a><button class="gn2" onclick="document.getElementById('brkM').hidden=true">✨ Got it</button></div>
+  <div class="mh"><h3>Price details</h3><button onclick="document.getElementById('brkM').hidden=true" aria-label="Close">✕</button></div>
+  <details open><summary>💡 Pay product now, shipping later</summary><p>Pay for the product and WOOW service today. When your parcel arrives in Bangladesh, we send a second invoice for shipping by its real weight.</p></details>
+  <details><summary>⚖️ Why is the weight an estimate?</summary><p>The store's seller declares the weight. The real parcel is weighed at our US warehouse, and that weight is final.</p></details>
+  <details><summary>🛃 Customs duty &amp; brokerage charge</summary><p>Some products may have customs duty or a brokerage charge in Dhaka. We always tell you before you pay it.</p><ul id="brkList"></ul></details>
+  <p style="margin-top:14px">Questions? Our customer care or GENI will help you.</p>
+  <div class="chat"><a class="wa" id="brkWa" target="_blank" rel="noopener">💬 Chat with us</a><button class="gn2" onclick="document.getElementById('brkM').hidden=true">Got it</button></div>
 </div></div>
 <div class="toast" id="toast"></div>
 <script src="/app.js"></script>

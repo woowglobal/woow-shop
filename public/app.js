@@ -221,7 +221,7 @@ async function loadCompare(p) {
     const s = STORES.find((x) => x.id === o.retailer) || { c: '#555', l: '?' }, c = est(o);
     return `<div class="co ${o.me ? 'me' : ''}">${i === 0 ? '<span class="best">Best price</span>' : ''}<img src="${esc(o.image || '')}" alt="">
       <div><div class="sn"><i style="background:${s.c}">${s.l}</i>${esc(o.store)}${o.me ? ' · viewing' : ''}</div><div class="t">${esc(o.title)}</div>
-      <div class="p"><b>${tk(c.total)}</b><small>${usd(o.priceCents)}</small></div><div class="kgx">≈ ${c.kg} kg incl. ${CFG.packagingPercent}% packing · pay now ${tk(c.item + c.fee)}</div>${i === 0 && all.length > 1 ? `<div class="save">Save ${tk(top - c.total)}</div>` : ''}</div>
+      <div class="p"><b>${tk(c.total)}</b><small>${usd(o.priceCents)}</small></div><div class="kgx">≈ ${c.kg} kg · pay now ${tk(c.item + c.fee)}</div>${i === 0 && all.length > 1 ? `<div class="save">Save ${tk(top - c.total)}</div>` : ''}</div>
       <div class="acts"><button class="a1" data-add="${esc(o.url)}">Add to cart</button>${o.me ? '' : `<button class="a2" data-view="${esc(o.url)}">View</button>`}</div></div>`;
   }).join('');
   $('cmpN').textContent = all.length; $('cmpL').dataset.n = String(all.length); showCmp(!cmpMin);
@@ -262,14 +262,9 @@ function openItem(p) {
 }
 function q(d) { qty = Math.max(1, Math.min(9, qty + d)); $('dQ').textContent = qty; upd(); }
 function weightBox(c) {
-  return `<div class="wt"><div class="wl"><span>${c.listed ? 'Seller\'s weight' : 'Typical weight (seller didn\'t list)'}</span><b>${c.sellerKg} kg</b></div>
-  <div class="wl"><span>+ ${CFG.packagingPercent}% courier box &amp; packing</span><b>≈ ${c.kg} kg</b></div>
-  <span class="why">Why only an estimate? Weight is declared by the seller. The real box (packing, padding, courier carton) is weighed at our US warehouse, and that actual weight is final.</span></div>`;
+  return `<div class="mini"><span>Est. weight <b>≈ ${c.kg} kg</b></span><span>Pay now <b>${tk(c.item + c.fee)}</b></span><button onclick="showBrokerage()">See more</button></div>`;
 }
-function secondInvoice(c) {
-  return `<div class="inv2"><b>💡 Recommended: pay the product now</b>Pay ${tk(c.item + c.fee)} today. When your parcel arrives in Bangladesh, WOOW sends a <b style="display:inline">second invoice</b> for shipping by its real weight (now ≈ ${tk(c.ship)}). Clear and fair, no guessing.</div>
-  <div class="brk2">Some products may have a <b>customs brokerage charge</b> in Dhaka. <button onclick="showBrokerage()">See which products →</button></div>`;
-}
+function secondInvoice() { return ''; }
 function showBrokerage() {
   $('brkList').innerHTML = (CFG.brokerageList || []).map((x) => `<li>${esc(x)}</li>`).join('');
   $('brkWa').href = `https://wa.me/${CFG.whatsapp}?text=${encodeURIComponent('Hi WOOW, I want to know the customs brokerage charge for: ' + (cur ? cur.title + ' ' + cur.url : ''))}`;
@@ -305,7 +300,7 @@ function sumHtml(d, btn) {
   <div class="row" style="margin-top:8px"><span>Products (${'$' + t.usd.toFixed(2)})</span><b>${tk(t.product)}</b></div>
   <div class="row"><span>US sales tax</span><b class="free">৳0</b></div>
   <div class="row"><span>WOOW buying service</span><b>${tk(t.fee)}</b></div>
-  <div class="row"><span>Shipping &amp; customs · est. ${t.kg} kg<small style="display:block;color:#86868B;font-size:11px">seller ${t.sellerKg} kg + ${t.packagingPercent}% packing · final by real weight</small></span><b>${tk(t.shipping)}</b></div>
+  <div class="row"><span>Shipping &amp; customs · est. ${t.kg} kg <button class="lnk" onclick="showBrokerage()">See more</button></span><b>${tk(t.shipping)}</b></div>
   <div class="tot"><span>Total</span><b>${tk(t.total)}</b></div>${btn}${planHtml(d.delivery)}`;
 }
 async function rCart() {
