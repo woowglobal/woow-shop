@@ -274,8 +274,10 @@ $('spCats').addEventListener('click', (e) => {
 // ── price comparison (left panel) ──
 let cmpMin = false; try { cmpMin = localStorage.getItem('woowCmpMin') === '1'; } catch {}
 let cmpFor = null;
-function showCmp(open) {
-  cmpMin = !open; try { localStorage.setItem('woowCmpMin', cmpMin ? '1' : '0'); } catch {}
+// phones/tablets: compare starts as a small button so it never covers the product; tap to open
+const small = () => innerWidth <= 1050;
+function showCmp(open, auto) {
+  cmpMin = !open; if (!auto) try { localStorage.setItem('woowCmpMin', cmpMin ? '1' : '0'); } catch {}
   $('cmp').hidden = cmpMin || !$('cmpL').dataset.n; $('cmpTab').hidden = !cmpMin || !$('cmpL').dataset.n; document.body.classList.toggle('cmpon', !$('cmp').hidden);
 }
 $('cmpMin').onclick = () => showCmp(false);
@@ -284,10 +286,10 @@ function hideCmp() { document.body.classList.remove('cmpon'); $('cmp').hidden = 
 async function loadCompare(p) {
   cmpFor = p.url; $('cmpL').dataset.n = '';
   if (!['amazon', 'walmart', 'target'].includes(p.retailer)) { hideCmp(); return; }
-  $('cmpL').innerHTML = '<div class="cmp-load">Checking Amazon, Walmart and Target…</div>'; $('cmpL').dataset.n = '1'; showCmp(!cmpMin);
+  $('cmpL').innerHTML = '<div class="cmp-load">Checking Amazon, Walmart and Target…</div>'; $('cmpL').dataset.n = '1'; showCmp(!cmpMin && !small(), true);
   let d; try { d = await api('/api/compare?url=' + encodeURIComponent(p.url)); } catch { hideCmp(); return; }
   if (cmpFor !== p.url) return;
-  if (!d.offers.length) { $('cmpL').innerHTML = '<div class="cmp-load">No matching product found at other stores right now.</div>'; $('cmpN').textContent = '0'; return; }
+  if (!d.offers.length) { $('cmpL').innerHTML = '<div class="cmp-load">No matching product found at other stores right now.</div>'; $('cmpN').textContent = '0'; if (small()) hideCmp(); return; }
   const all = [{ ...p, me: true }, ...d.offers].sort((a, b) => a.priceCents - b.priceCents);
   remember(d.offers);
   const top = est(all[all.length - 1]).total;
@@ -298,7 +300,7 @@ async function loadCompare(p) {
       <div class="p"><b>${tk(c.total)}</b><small>${usd(o.priceCents)}</small></div><div class="kgx">${c.s.c ? '+' + usd(c.s.c) + ' US delivery' : 'Free US delivery'} · ${CFG.taxRate ? 'tax ' + CFG.taxRate + '%' : 'tax-free'}</div>${i === 0 && all.length > 1 ? `<div class="save">Save ${tk(top - c.total)}</div>` : ''}</div>
       <div class="acts"><button class="a1" data-add="${esc(o.url)}">Add to cart</button>${o.me ? '' : `<button class="a2" data-view="${esc(o.url)}">View</button>`}</div>${storeLink(o) ? `<a class="sl" href="${esc(o.url)}" target="_blank" rel="noopener">${usd(o.priceCents)} on ${esc(o.store)} ↗</a>` : ''}</div>`;
   }).join('');
-  $('cmpN').textContent = all.length; $('cmpL').dataset.n = String(all.length); showCmp(!cmpMin);
+  $('cmpN').textContent = all.length; $('cmpL').dataset.n = String(all.length); showCmp(!cmpMin && !small(), true);
 }
 $('cmpL').addEventListener('click', (e) => { const a = e.target.closest('[data-add]'), v = e.target.closest('[data-view]'); if (a) cmpCart(a.dataset.add); if (v) openItem(SEEN.get(v.dataset.view)); });
 function cmpCart(u) {
@@ -356,6 +358,7 @@ function upd() {
   <div><span>Shipping &amp; customs to Dhaka<small>Est. ${c.kg} kg × ৳${CFG.kgRate.toLocaleString('en-US')}</small></span><b>${tk(c.ship)}</b></div>`;
   $('dExtra').innerHTML = weightBox(c) + secondInvoice(c);
   $('dPlan').innerHTML = planHtml(localPlan([cur.retailer]));
+  setMbar(`<div><small>Delivered to Dhaka</small><b>${tk(c.total)}</b></div><button class="b1" onclick="addCart(true)">Add to cart</button><button class="b2" onclick="addCart(false);go('pay')">Buy now</button>`);
 }
 function addCart(show) {
   const option = $('dOpt').value.trim();
@@ -383,13 +386,14 @@ function sumHtml(d, btn) {
 }
 async function rCart() {
   save();
-  if (!CART.length) { $('route').innerHTML = ''; $('cGroups').innerHTML = '<div class="card empty">Your cart is empty.</div><div class="rv" id="rvC"></div>'; $('cSum').innerHTML = '<button class="btn" onclick="go(\'browse\')">Start shopping</button>'; rvDraw(); return; }
+  if (!CART.length) { setMbar(''); $('route').innerHTML = ''; $('cGroups').innerHTML = '<div class="card empty">Your cart is empty.</div><div class="rv" id="rvC"></div>'; $('cSum').innerHTML = '<button class="btn" onclick="go(\'browse\')">Start shopping</button>'; $('cGroups').insertAdjacentHTML('beforeend', removedHtml()); rvDraw(); return; }
   drawGroups(null);
   $('cSum').innerHTML = '<div class="tt">Calculating…</div>';
   try {
     const d = await getQuote();
     drawGroups(d.quote); $('route').innerHTML = routeHtml(d);
     $('cSum').innerHTML = sumHtml(d, '<button class="btn dk" style="margin-top:14px" onclick="go(\'pay\')">Checkout in Taka →</button>');
+    setMbar(`<div><small>Total · ${CART.reduce((a, x) => a + x.qty, 0)} items</small><b>${tk(d.quote.total)}</b></div><button class="b2" onclick="go('pay')">Checkout →</button>`);
   } catch (e) { $('cSum').innerHTML = `<div class="err" style="display:block">${esc(e.message)}</div>`; }
 }
 // Cart concept: one picture of the journey — US store → WOOW warehouse (tax-free) → WOOW flight → your door
@@ -410,7 +414,7 @@ function drawGroups(t) {
     G[r].map(([x, i]) => { const sl = storeLink(x); return `<div class="ci"><img src="${esc(x.image || '')}" alt=""><div><b>${esc(x.title)}</b><small>${x.option ? esc(x.option) + ' · ' : ''}Qty ${x.qty}</small>
       <div class="tr">${sl ? `<a href="${esc(sl)}" target="_blank" rel="noopener">${esc(x.store)} ${usd(x.priceCents)} ↗</a>` : `<span>${esc(x.store)} ${usd(x.priceCents)}</span>`}<span class="eq">=</span><span>WOOW ${usd(x.priceCents)}</span><span class="ok">✓ Same price</span></div>
       <button class="rm" onclick="rmv(${i})">Remove</button></div><div style="text-align:right"><b>${tk(x.priceCents / 100 * x.qty * CFG.rate)}</b></div></div>`; }).join('') + '</div>';
-  }).join('');
+  }).join('') + removedHtml();
 }
 function showWhy() {
   const T = CFG.taxRate, W = CFG.warehouseState === 'NY' ? 'New York' : 'Delaware';
@@ -422,7 +426,21 @@ function showWhy() {
   $('whyWa').href = `https://wa.me/${CFG.whatsapp}?text=${encodeURIComponent('Hi WOOW, I have a question about how Buy For Me works.')}`;
   $('whyM').hidden = false;
 }
-function rmv(i) { CART.splice(i, 1); rCart(); }
+// Removed items stay below the cart, so the customer can change their mind and add them back
+function remLoad() { try { return JSON.parse(localStorage.getItem('woowRemoved') || '[]'); } catch { return []; } }
+function remSave(L) { try { localStorage.setItem('woowRemoved', JSON.stringify(L.slice(0, 10))); } catch {} }
+function rmv(i) { const [x] = CART.splice(i, 1); if (x) remSave([x, ...remLoad().filter((r) => !(r.url === x.url && r.option === x.option))]); rCart(); toast('Removed · add back below'); }
+function addBack(k) {
+  const L = remLoad(), x = L[k]; if (!x) return;
+  const ex = CART.find((c) => c.url === x.url && c.option === x.option);
+  if (ex) ex.qty = Math.min(9, ex.qty + x.qty); else CART.push(x);
+  L.splice(k, 1); remSave(L); beacon('cart', x); rCart(); toast('✓ Added back to cart');
+}
+function remClear() { remSave([]); rCart(); }
+function removedHtml() {
+  const L = remLoad(); if (!L.length) return '';
+  return `<div class="card sg rmd"><h4>Removed from cart<button class="lnk" onclick="remClear()">Clear</button></h4>` + L.map((x, k) => `<div class="ci"><img src="${esc(x.image || '')}" alt=""><div><b>${esc(x.title)}</b><small>${esc(x.store)} · ${x.option ? esc(x.option) + ' · ' : ''}Qty ${x.qty} · ${usd(x.priceCents)}</small></div><button class="ab" onclick="addBack(${k})">+ Add back</button></div>`).join('') + '</div>';
+}
 async function rPay() {
   if (!CART.length) return go('browse');
   $('pSum').innerHTML = '<div class="tt">Calculating…</div>';
@@ -433,6 +451,7 @@ function drawPay(d) {
   const t = d.quote, now = plan === 'full' ? t.total : t.payNowSplit;
   $('pFull').textContent = tk(t.total); $('pSplit').textContent = tk(t.payNowSplit) + ' now';
   const ml = { bkash: 'bKash', nagad: 'Nagad', card: 'card', bank: 'bank transfer' }[method];
+  setMbar(`<div><small>Pay now · ${ml}</small><b>${tk(now)}</b></div><button class="b2" onclick="placeOrder()">Pay ${tk(now)}</button>`);
   $('pSum').innerHTML = sumHtml(d, `<div class="now"><span>Pay now</span><b>${tk(now)}</b></div>${plan === 'split' ? `<div class="row"><span>On arrival in Dhaka</span><b>${tk(t.shipping)}</b></div>` : ''}
    <button class="btn dk" id="payBtn" style="margin-top:12px" onclick="placeOrder()">Pay ${tk(now)} with ${ml}</button><div class="err" id="pErr"></div>
    <p class="note">✓ Same price as the store website. We re-check it when you press Pay. Rate $1 = ৳${t.rate}. By paying you agree WOOW buys these items for you from US stores. Final shipping is based on actual weight.</p>`);
@@ -460,9 +479,13 @@ async function placeOrder() {
   else location.href = `/order?id=${d.orderId}&phone=${phone}&bank=1`;
 }
 
+// ── phone bottom bar: price + main button always in reach (product, cart, checkout) ──
+function setMbar(html) { const m = $('mbar'); m.innerHTML = html || ''; m.hidden = !html; document.body.classList.toggle('has-mbar', !!html); }
+
 // ── navigation ──
 function go(v) {
   if (v !== 'item') hideCmp();
+  if (!['item', 'cart', 'pay'].includes(v)) setMbar('');
   document.querySelectorAll('.v').forEach((x) => x.classList.toggle('on', x.id === 'v-' + v));
   if (v === 'cart') rCart(); if (v === 'pay') rPay(); if (v === 'browse') rvDraw();
   window.scrollTo({ top: 0, behavior: 'smooth' });
