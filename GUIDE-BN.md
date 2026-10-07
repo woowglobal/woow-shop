@@ -94,3 +94,12 @@ Admin panel: `https://...workers.dev/admin` → ইউজার `admin`, পা�
 - [ ] বাংলাদেশে টাকা নিয়ে USA তে কেনাকাটা (Bangladesh Bank FX নিয়ম, import/customs) — একজন বাংলাদেশি আইনজীবী / accountant এর সাথে নিশ্চিত করুন
 
 কোথাও আটকালে screenshot পাঠান — কোন ধাপে, কী দেখাচ্ছে — Claude ঠিক করে দেবে। Cloudflare connect থাকায় Claude আপনার worker আর database চেক করতে পারে।
+
+---
+
+## Store logo বসানো
+
+GitHub এ `public/logos/` folder এ store এর logo file রাখুন, নাম হবে store এর id দিয়ে:
+`amazon.png`, `walmart.png`, `target.png`, `ebay.png`, `bestbuy.png`, `costco.png`, `macys.png`, `nike.png`, `sephora.png`, `ulta.png`, `iherb.png`, `carters.png`
+
+File রাখলেই shop এর tile আর store page এ নিজে থেকে logo দেখাবে; না থাকলে অক্ষরের icon থাকবে। প্রতিটা কোম্পানির অফিসিয়াল brand / press kit থেকে logo নেবেন আর তাদের trademark নিয়ম মানবেন।

@@ -185,3 +185,62 @@ function demoSearch(q, retailer) {
   const hit = inStore.filter((p) => !words.length || words.some((w) => p.title.toLowerCase().includes(w)));
   return hit.length ? hit : inStore; // demo: always show something
 }
+
+
+// ───────── price comparison across Amazon / Walmart / Target ─────────
+// Cost saver: 1) answer from products we already saved (free), 2) otherwise ONE Zinc search
+// covering all three stores ($0.01), 3) keep the answer 6 hours for every customer.
+export const COMPARE_RETAILERS = ['amazon', 'walmart', 'target'];
+const STOP = new Set('the a an and or for with of in on to by from pack count oz fl ct pcs piece pieces new size set'.split(' '));
+const toks = (t) => String(t || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter((w) => w.length > 1 && !STOP.has(w));
+export function similarity(a, b) {
+  const A = new Set(toks(a.title)), B = new Set(toks(b.title));
+  if (!A.size || !B.size) return 0;
+  let inter = 0; A.forEach((w) => { if (B.has(w)) inter++; });
+  let s = inter / Math.min(A.size, B.size);
+  const nums = (S) => [...S].filter((w) => /\d/.test(w));
+  const na = nums(A), nb = nums(B);
+  if (na.length && nb.length && !na.some((n) => nb.includes(n))) s *= 0.5; // different size / model number
+  if (a.brand && b.brand && a.brand.toLowerCase() !== b.brand.toLowerCase()) s *= 0.6;
+  return Math.round(s * 100) / 100;
+}
+function bestPerStore(base, list, min = 0.55) {
+  const best = {};
+  for (const p of list) {
+    if (!COMPARE_RETAILERS.includes(p.retailer) || p.retailer === base.retailer || !p.priceCents) continue;
+    const sc = similarity(base, p);
+    if (sc >= min && (!best[p.retailer] || sc > best[p.retailer].score)) best[p.retailer] = { ...p, score: sc };
+  }
+  return Object.values(best);
+}
+export async function compare(env, ctx, url) {
+  const base = await recall(env, url, Infinity);
+  if (!base) return { base: null, offers: [], source: 'none' };
+  const cache = caches.default, key = new Request('https://cache.woow/compare?u=' + encodeURIComponent(url));
+  const hit = await cache.match(key); if (hit) return { ...(await hit.json()), source: 'cache' };
+  // 1) free: products we already saved in the last 6 hours
+  const since = Date.now() - 6 * 3600e3;
+  const rows = (await env.DB.prepare("SELECT data FROM products WHERE seen > ? AND url != ? AND json_extract(data,'$.retailer') IN ('amazon','walmart','target') ORDER BY seen DESC LIMIT 800").bind(since, url).all()).results;
+  let offers = bestPerStore(base, rows.map((r) => JSON.parse(r.data)));
+  let source = 'saved';
+  const missing = COMPARE_RETAILERS.filter((r) => r !== base.retailer && !offers.some((o) => o.retailer === r));
+  // 2) one Zinc search for the stores still missing
+  if (missing.length && env.ZINC_API_KEY) {
+    const q = [base.brand, ...toks(base.title).slice(0, 7)].filter(Boolean).join(' ');
+    const params = new URLSearchParams({ q, limit: '15' }); missing.forEach((r) => params.append('retailer', r));
+    try {
+      const data = await zinc(env, '/search?' + params.toString());
+      const L = (data.results || []).filter((r) => r.price > 0).map(normalize);
+      ctx.waitUntil(remember(env, L));
+      offers = offers.concat(bestPerStore(base, L).filter((o) => missing.includes(o.retailer)));
+      source = 'zinc';
+    } catch (e) { console.log('compare search failed', e.message); }
+  }
+  if (!env.ZINC_API_KEY && !offers.length) { // demo: show the idea with sample prices
+    offers = COMPARE_RETAILERS.filter((r) => r !== base.retailer).map((r, i) => ({ ...base, url: base.url + '#' + r, retailer: r, store: retailerName(r), priceCents: Math.round(base.priceCents * (i ? 1.06 : 0.94)), score: 0.9, demo: true }));
+    await remember(env, offers);
+  }
+  const out = { base, offers: offers.sort((a, b) => a.priceCents - b.priceCents) };
+  ctx.waitUntil(cache.put(key, new Response(JSON.stringify(out), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=21600' } })));
+  return { ...out, source };
+}

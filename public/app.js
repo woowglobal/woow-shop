@@ -119,10 +119,12 @@ function setMode(m) {
 }
 $('mode').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setMode(b.dataset.m); });
 const searchable = (id) => CFG.stores.some((s) => s.id === id);
+// Official store logos: put files in public/logos/<store-id>.png (e.g. amazon.png). Falls back to the letter icon.
+function logoI(s) { return `<i style="background:${s.c}"><img src="/logos/${s.id}.png" alt="" onload="this.parentNode.classList.add('has-img')" onerror="this.remove()"><span>${s.l}</span></i>`; }
 function drawCats() {
   $('cats').innerHTML = ['All', ...Object.keys(CAT_WORD)].map((c) => `<button class="cat ${c === cat ? 'on' : ''}" data-c="${c}">${c}</button>`).join('');
   const L = STORES.filter((s) => cat === 'All' || s.cats.includes(cat));
-  $('tiles').innerHTML = L.map((s) => `<button class="tile ${store === s.id ? 'on' : ''}" data-st="${s.id}"><i style="background:${s.c}">${s.l}</i>${esc(s.n)}${searchable(s.id) ? '' : '<em>paste link</em>'}</button>`).join('');
+  $('tiles').innerHTML = L.map((s) => `<button class="tile ${store === s.id ? 'on' : ''}" data-st="${s.id}">${logoI(s)}${esc(s.n)}${searchable(s.id) ? '' : '<em>paste link</em>'}</button>`).join('');
 }
 $('cats').addEventListener('click', (e) => {
   const b = e.target.closest('.cat'); if (!b) return;
@@ -148,13 +150,14 @@ function rowHtml(id, title, q, hero) {
 }
 let rowObs = null;
 function openStore(id, push = true) {
+  hideCmp();
   const s = STORES.find((x) => x.id === id), t = THEME[id]; if (!s || !t) return;
   curStore = s; store = id;
   const band = $('spBand');
   ['sb', 'sf', 'sa', 'sat'].forEach((k) => band.style.setProperty('--' + k, t[k]));
   $('spBody').style.setProperty('--sh', t.sh);
   band.classList.toggle('sp-light', !!t.light);
-  $('spLogo').textContent = s.l; $('spName').textContent = s.n;
+  $('spLogo').outerHTML = logoI(s).replace('<i ', '<i id="spLogo" '); $('spName').textContent = s.n;
   $('spQ').placeholder = `Search ${s.n}`; $('spQ').value = '';
   $('spCats').innerHTML = [['Home', ''], ...t.rows].map(([n, q], i) => `<button class="${i ? '' : 'on'}" data-q="${esc(q)}">${esc(n)}</button>`).join('');
   drawStoreHome();
@@ -193,6 +196,43 @@ $('spCats').addEventListener('click', (e) => {
   if (!b.dataset.q) { $('spQ').value = ''; drawStoreHome(); } else storeSearch(b.dataset.q);
 });
 
+// ── price comparison (left panel) ──
+let cmpMin = false; try { cmpMin = localStorage.getItem('woowCmpMin') === '1'; } catch {}
+let cmpFor = null;
+function showCmp(open) {
+  cmpMin = !open; try { localStorage.setItem('woowCmpMin', cmpMin ? '1' : '0'); } catch {}
+  $('cmp').hidden = cmpMin || !$('cmpL').dataset.n; $('cmpTab').hidden = !cmpMin || !$('cmpL').dataset.n;
+}
+$('cmpMin').onclick = () => showCmp(false);
+$('cmpTab').onclick = () => showCmp(true);
+function hideCmp() { $('cmp').hidden = true; $('cmpTab').hidden = true; $('cmpL').dataset.n = ''; cmpFor = null; }
+async function loadCompare(p) {
+  cmpFor = p.url; $('cmpL').dataset.n = '';
+  if (!['amazon', 'walmart', 'target'].includes(p.retailer)) { hideCmp(); return; }
+  $('cmpL').innerHTML = '<div class="cmp-load">Checking Amazon, Walmart and Target…</div>'; $('cmpL').dataset.n = '1'; showCmp(!cmpMin);
+  let d; try { d = await api('/api/compare?url=' + encodeURIComponent(p.url)); } catch { hideCmp(); return; }
+  if (cmpFor !== p.url) return;
+  if (!d.offers.length) { $('cmpL').innerHTML = '<div class="cmp-load">No matching product found at other stores right now.</div>'; $('cmpN').textContent = '0'; return; }
+  const all = [{ ...p, me: true }, ...d.offers].sort((a, b) => a.priceCents - b.priceCents);
+  remember(d.offers);
+  const top = est(all[all.length - 1]).total;
+  $('cmpL').innerHTML = all.map((o, i) => {
+    const s = STORES.find((x) => x.id === o.retailer) || { c: '#555', l: '?' }, c = est(o);
+    return `<div class="co ${o.me ? 'me' : ''}">${i === 0 ? '<span class="best">Best price</span>' : ''}<img src="${esc(o.image || '')}" alt="">
+      <div><div class="sn"><i style="background:${s.c}">${s.l}</i>${esc(o.store)}${o.me ? ' · viewing' : ''}</div><div class="t">${esc(o.title)}</div>
+      <div class="p"><b>${tk(c.total)}</b><small>${usd(o.priceCents)}</small></div>${i === 0 && all.length > 1 ? `<div class="save">Save ${tk(top - c.total)}</div>` : ''}</div>
+      <div class="acts"><button class="a1" data-add="${esc(o.url)}">Add to cart</button>${o.me ? '' : `<button class="a2" data-view="${esc(o.url)}">View</button>`}</div></div>`;
+  }).join('');
+  $('cmpN').textContent = all.length; $('cmpL').dataset.n = String(all.length); showCmp(!cmpMin);
+}
+$('cmpL').addEventListener('click', (e) => { const a = e.target.closest('[data-add]'), v = e.target.closest('[data-view]'); if (a) cmpCart(a.dataset.add); if (v) openItem(SEEN.get(v.dataset.view)); });
+function cmpCart(u) {
+  const p = SEEN.get(u) || (cur && cur.url === u ? cur : null); if (!p) return;
+  const ex = CART.find((x) => x.url === p.url && !x.option);
+  if (ex) ex.qty = Math.min(9, ex.qty + 1); else CART.push({ url: p.url, qty: 1, option: '', retailer: p.retailer, store: p.store, title: p.title, image: p.image, priceCents: p.priceCents, kg: p.kg || null });
+  save(); toast('✓ Added from ' + p.store);
+}
+
 // ── price quote (Costco and other stores without instant prices) ──
 function openQuote(d) {
   $('qUrl').value = d.url; $('qTitle').value = ''; $('qUsd').value = ''; $('qQty').value = 1; $('qOpt').value = '';
@@ -217,7 +257,7 @@ function openItem(p) {
   $('dImg').src = p.image || ''; $('dNm').textContent = p.title; $('dLink').href = p.url.startsWith('https://demo.') ? '#' : p.url;
   $('dSrc').innerHTML = `<b>${esc(p.store)}</b>Sold and shipped in the USA`;
   $('dSt').innerHTML = p.stars ? `★ ${p.stars} <span>(${(p.reviews || 0).toLocaleString('en-US')} ratings)</span>` : '';
-  upd(); go('item');
+  upd(); go('item'); SEEN.set(p.url, p); loadCompare(p);
 }
 function q(d) { qty = Math.max(1, Math.min(9, qty + d)); $('dQ').textContent = qty; upd(); }
 function upd() {
@@ -303,6 +343,7 @@ async function placeOrder() {
 
 // ── navigation ──
 function go(v) {
+  if (v !== 'item') hideCmp();
   document.querySelectorAll('.v').forEach((x) => x.classList.toggle('on', x.id === 'v-' + v));
   if (v === 'cart') rCart(); if (v === 'pay') rPay();
   window.scrollTo({ top: 0, behavior: 'smooth' });

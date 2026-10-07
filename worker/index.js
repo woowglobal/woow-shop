@@ -165,6 +165,11 @@ async function handle(req, env, ctx) {
     return json({ results: await zinc.search(env, ctx, url.searchParams.get('q') || '', url.searchParams.get('store') || 'all') });
   }
 
+  if (path === '/api/compare') {
+    if (limited(req, 'c', 40, 60000)) return bad('Too many requests, please wait a moment.', 429);
+    return json(await zinc.compare(env, ctx, url.searchParams.get('url') || ''));
+  }
+
   if (path === '/api/link' && m === 'POST') {
     if (limited(req, 'l', 20, 60000)) return bad('Too many requests, please wait a moment.', 429);
     const u = String((await body(req)).url || '').trim();
