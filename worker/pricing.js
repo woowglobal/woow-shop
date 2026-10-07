@@ -89,7 +89,8 @@ export function lineWeight(it, p) {
   const dims = Array.isArray(it.dims) && it.dims.length === 3 && it.dims.every((x) => x > 0) ? it.dims : vr ? vr.dims : null;
   const vol = dims ? (dims[0] * dims[1] * dims[2] * 16.387) / (p.volDivisor || 6000) : 0;
   const per = Math.max(packed, vol);
-  return { actualKg: r2(packed * it.qty), volKg: r2(vol * it.qty), dims: dims ? dims.map((x) => Math.round(x * 10) / 10) : null, dimsFrom: it.dims ? 'store' : vr ? vr.name : null,
+  // volEffKg: this item's share of the parcel's volume weight (a dense item with no box size counts its real weight)
+  return { actualKg: r2(packed * it.qty), volKg: r2(vol * it.qty), volEffKg: r2((dims ? vol : packed) * it.qty), dims: dims ? dims.map((x) => Math.round(x * 10) / 10) : null, dimsFrom: it.dims ? 'store' : vr ? vr.name : null,
     volumetric: vol > packed, chargeKg: Math.ceil(per * it.qty * 10) / 10 };
 }
 
@@ -115,7 +116,7 @@ export function quote(items, p, opt = {}) {
     }
     const w = lineWeight(it, p), br = brokerFor(it, p);
     return { ...it, lineUsd: r2(lineUsd), lineBdt: Math.round(lineUsd * p.rate), ...w,
-      brokerage: br ? { name: br.name, perKg: br.perKg, bdt: Math.round(w.chargeKg * br.perKg) } : null };
+      brokerage: br ? { name: br.name, perKg: br.perKg, kg: Math.ceil(w.actualKg * 10) / 10, bdt: Math.round(Math.ceil(w.actualKg * 10) / 10 * br.perKg) } : null };
   });
   const tr = taxRate(p);
   const stores = Object.values(groups).map((g) => {
@@ -138,8 +139,10 @@ export function quote(items, p, opt = {}) {
   const product = Math.round(usd * p.rate);
   const usShip = Math.round(usShipUsd * p.rate), usTax = Math.round(taxUsd * p.rate);
   const fee = items.length ? Math.round(Math.max(p.minFee || 0, feeBdt)) : 0;
-  const kg = Math.ceil(lines.reduce((a, l) => a + l.chargeKg, 0) * 10) / 10;
-  const sellerKg = r2(lines.reduce((a, l) => a + l.actualKg, 0)), volKg = r2(lines.reduce((a, l) => a + l.volKg, 0));
+  // One WOOW box per order: chargeable weight = the bigger of the parcel's actual weight and its volume weight
+  const sellerKg = Math.ceil(lines.reduce((a, l) => a + l.actualKg, 0) * 10) / 10;
+  const volKg = Math.ceil(lines.reduce((a, l) => a + l.volEffKg, 0) * 10) / 10;
+  const kg = Math.max(sellerKg, volKg);
   const shipping = Math.round(kg * p.kgRate);
   const brokerage = lines.reduce((a, l) => a + (l.brokerage?.bdt || 0), 0);
   const payNowSplit = product + usShip + usTax + fee;
@@ -148,7 +151,7 @@ export function quote(items, p, opt = {}) {
   return {
     pickup: !!opt.pickup, localDelivery,
     lines, usd: r2(usd), rate: p.rate, product, stores, usShipUsd, usShip,
-    taxState: p.warehouseState, taxRate: tr, taxUsd, usTax, fee, sellerKg, volKg, volumetric: lines.some((l) => l.volumetric), kg, kgRate: p.kgRate, shipping, brokerage,
+    taxState: p.warehouseState, taxRate: tr, taxUsd, usTax, fee, sellerKg, volKg, volumetric: volKg > sellerKg, kg, kgRate: p.kgRate, shipping, brokerage,
     storeTotalUsd: r2(usd + usShipUsd + taxUsd), storeTotalBdt: product + usShip + usTax,
     total: payNowSplit + arrival, payNowSplit, arrival,
   };

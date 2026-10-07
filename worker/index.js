@@ -262,7 +262,8 @@ async function handle(req, env, ctx) {
     if (limited(req, 's', 30, 60000)) return bad('Too many searches, please wait a moment.', 429);
     const q = url.searchParams.get('q') || '', st = url.searchParams.get('store') || 'all', pr = await getPricing(env.DB);
     // home/store rails (same words every day) are shared for 24 h; customer searches for 6 h
-    const results = await zinc.search(env, ctx, q, st, { budgetCents: pr.zincDailyBudgetCents, ttlMs: url.searchParams.get('rail') === '1' ? 864e5 : 6 * 3600e3, gate: await gateFor(pr) });
+    // every search is saved in WOOW and shared with all customers for 24 h — only the first one costs a Zinc call
+    const results = await zinc.search(env, ctx, q, st, { budgetCents: pr.zincDailyBudgetCents, ttlMs: 864e5, gate: await gateFor(pr) });
     if (url.searchParams.get('t') !== '0') ctx.waitUntil(track(env, req, 'search', { q: q || '(popular)', store: st, user: (await me())?.id, extra: { n: results.length } }));
     return json({ results: await withEst(results) });
   }
@@ -598,6 +599,7 @@ async function forYou(env, b, user, sid) {
   mine.forEach((r, i) => { const w = (r.type === 'cart' ? 3 : r.type === 'search' ? 2.5 : 1) * (i < 30 ? 1.5 : 1); if (r.q && r.q !== '(popular)') add(r.q, w); });
   arr(b.titles, 20).forEach((t) => add(t, 1));
   const topWords = Object.entries(kw).sort((a, c) => c[1] - a[1]).slice(0, 5).map(([w]) => w);
+  const searchedW = new Set([...arr(b.searches, 20), ...mine.filter((r) => r.type === 'search').map((r) => r.q)].flatMap(words));
   const out = new Map(); // url → { why, score }
   const put = (url, why, score) => { if (!url || seen.has(url)) return; const o = out.get(url); if (!o || o.score < score) out.set(url, { why, score: (o?.score || 0) * 0.3 + score }); };
   // 2) people with similar taste: viewed/carted the same products → what else they viewed, carted, bought
@@ -605,14 +607,14 @@ async function forYou(env, b, user, sid) {
   if (myUrls.length) {
     const ph = myUrls.map(() => '?').join(',');
     const co = await all(`SELECT url, SUM(CASE type WHEN 'cart' THEN 3 ELSE 1 END) w FROM track WHERE ts>? AND type IN ('view','cart') AND url IS NOT NULL AND sid IN (SELECT DISTINCT sid FROM track WHERE url IN (${ph}) AND sid IS NOT NULL AND sid != ? LIMIT 200) GROUP BY url ORDER BY w DESC LIMIT 30`, since, ...myUrls, sid || '-');
-    co.forEach((r) => put(r.url, 'Shoppers like you liked this', 10 + r.w));
+    co.forEach((r) => put(r.url, 'Shoppers like you viewed', 10 + r.w));
     const bought = await all("SELECT items FROM orders WHERE amount_paid > 0 AND created_at > ? ORDER BY created_at DESC LIMIT 200", new Date(since).toISOString());
     for (const o of bought) { const it = J(o.items) || []; if (it.some((x) => seen.has(x.url))) it.forEach((x) => put(x.url, 'Bought together by other customers', 25)); }
   }
   // 3) what this customer is thinking about: saved products matching their top words (free, from WOOW's catalog)
   for (const [i, w] of topWords.entries()) {
     const rows = await all("SELECT url FROM products WHERE lower(json_extract(data,'$.title')) LIKE ? AND json_extract(data,'$.priceCents') > 0 ORDER BY seen DESC LIMIT 6", '%' + w.replace(/[%_]/g, '') + '%');
-    rows.forEach((r, k) => put(r.url, `Because you looked at “${w}”`, 20 - i * 2 - k * 0.5));
+    rows.forEach((r, k) => put(r.url, searchedW.has(w) ? `You searched “${w}”` : `Like what you viewed`, 20 - i * 2 - k * 0.5));
   }
   // 4) social trend: what shoppers who came from the same app (Facebook, TikTok…) are viewing
   const ref = SOCIAL[String(b.ref || '').toLowerCase()];

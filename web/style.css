@@ -470,7 +470,7 @@ body.has-asb{padding-top:44px}
 .qr span small{display:block;font-size:11px;color:var(--mute);margin-top:1px;line-height:1.35}
 .qr>b{font-weight:700;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.qr>b.free{color:var(--green)}
 .qr.qt{border-top:1px solid var(--hair)!important;font-weight:800}.qr.qt>b{font-size:15px}.qr.qt>b small{display:block;font-size:11.5px;color:var(--mute);font-weight:600}
-.why{background:none;border:0;padding:0;color:#0066CC;font-weight:700;font-size:11px;cursor:pointer;font-family:inherit}
+.wy{display:inline;background:none;border:0;padding:0;margin:0;color:#0066CC;font-weight:700;font-size:11px;cursor:pointer;font-family:inherit}
 .wts{display:flex;gap:8px;padding:10px 0 4px}
 .wts div{flex:1;min-width:0;background:#F5F6F9;border-radius:12px;padding:8px 10px;text-align:left}
 .wts small{display:block;font-size:10.5px;color:var(--mute);font-weight:700}.wts b{display:block;font-size:16px;letter-spacing:-.02em}.wts em{display:block;font-style:normal;font-size:10.5px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -484,3 +484,35 @@ body.has-asb{padding-top:44px}
 .wts div,.qpay div{display:block!important}
 .wts div{padding:9px 10px}.wts b{font-size:17px;margin:1px 0}
 #dExtra .qb2{margin-top:6px}
+
+/* ── compact order summary (cart + checkout fit one screen) ── */
+.sum{padding:16px 18px}
+.cs-h{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}.cs-h b{font-size:15px}.cs-h small{font-size:11.5px;color:var(--mute)}
+.cs{display:flex;flex-direction:column}
+.cs-st{border-bottom:1px solid #F2F2F5}
+.cs-st summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px 0}
+.cs-st summary::-webkit-details-marker{display:none}
+.cs-st summary i{width:22px;height:22px;border-radius:6px;background:var(--sc);color:#fff;font-style:normal;font-weight:900;font-size:11px;display:flex;align-items:center;justify-content:center}
+.cs-st summary b{display:block;font-size:13px}.cs-st summary small{display:block;font-size:11px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cs-v{text-align:right;white-space:nowrap}.cs-v b{font-size:13.5px;font-variant-numeric:tabular-nums}.cs-v em{display:block;font-style:normal;font-size:11px;color:var(--mute)}
+.cs-st[open] summary small::after{content:" ▴"}.cs-st:not([open]) summary small::after{content:" ▾"}
+.cs-d{background:#F7F7FA;border-radius:12px;padding:4px 10px;margin:0 0 8px 32px}
+.cs-d div{display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:5px 0}.cs-d div+div{border-top:1px solid #ECECF0}.cs-d small{color:var(--mute)}
+.cs-r{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:start;padding:9px 0;border-bottom:1px solid #F2F2F5;font-size:13px}
+.cs-r>span b{font-weight:600}.cs-r small{display:block;font-size:11px;color:var(--mute);margin-top:1px;line-height:1.35}.cs-r>b{font-variant-numeric:tabular-nums;white-space:nowrap}
+.cs-tot{display:flex;justify-content:space-between;align-items:baseline;padding:10px 0 6px}.cs-tot span{font-size:14px;font-weight:700}.cs-tot b{font-size:24px;font-weight:800;letter-spacing:-.03em}
+.po{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:6px 0 8px}
+.po button{position:relative;text-align:left;border:1.5px solid var(--hair);background:#fff;border-radius:14px;padding:9px 10px 9px 32px;cursor:pointer;font-family:inherit}
+.po button i{position:absolute;left:10px;top:11px;width:16px;height:16px;border-radius:50%;border:1.5px solid #C7C7CC}
+.po button.on{border-color:#1D1D1F;background:#FFFBEA}.po button.on i{border:5px solid #1D1D1F}
+.po b{display:block;font-size:12px}.po span{display:block;font-size:16px;font-weight:800;letter-spacing:-.02em;margin:1px 0}.po small{display:block;font-size:10.5px;color:var(--mute);line-height:1.3}
+.inv{font-size:11.5px;color:#424245;background:#F5F6F9;border-radius:10px;padding:7px 10px;margin-bottom:10px;line-height:1.4}
+.sum .btn{margin:0}.sum .note{margin:8px 0 0;font-size:11px}
+.dpc{margin-top:10px;border-top:1px solid #F2F2F5;padding-top:8px}
+.dpc summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:12.5px}.dpc summary::-webkit-details-marker{display:none}
+.dpc summary b{font-weight:700}.dpc summary em{margin-left:auto;font-style:normal;font-size:11.5px;color:var(--mute);white-space:nowrap}
+.dpc .dp{margin-top:8px}
+/* checkout left column: compact pay methods */
+.pmc .ops.c4 .op{padding:10px 12px}.pmc .op small{display:none}.pmc .op b{margin-top:6px}
+#v-pay .sec{margin-bottom:10px}#v-pay h1,#v-cart h1{margin-bottom:10px!important}
+@media (min-width:821px){#v-pay .two,#v-cart .two{grid-template-columns:minmax(0,1fr) 380px}.sum{position:sticky;top:76px;max-height:calc(100vh - 92px);overflow:auto}}
