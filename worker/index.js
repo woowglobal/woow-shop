@@ -3,6 +3,11 @@
 import { getPricing, savePricing, quote, deliveryPlan, taxRate, shipRule, upcomingFlights, cleanFlights, refreshPlan } from './pricing.js';
 import * as zinc from './zinc.js';
 import * as ssl from './sslcommerz.js';
+import * as auth from './auth.js';
+import { makeGate } from './guard.js';
+
+// WOOW Bangladesh office — free pickup point
+const PICKUP = { name: 'WOOW Global — Bangladesh Office', address: 'House #254, Road #03, Baridhara DOHS, Dhaka', hotline: '+88 09649-223322', hours: '10 AM – 6 PM', closed: 'Closed on Fridays and public holidays', map: 'https://www.google.com/maps/search/?api=1&query=House+254+Road+3+Baridhara+DOHS+Dhaka' };
 
 const STATUS = {
   quote_requested: 'WOOW is checking the price', awaiting_payment: 'Waiting for payment', bank_review: 'Checking your bank transfer', paid: 'Paid — GENI will buy soon',
@@ -47,9 +52,9 @@ async function track(env, req, type, f = {}) {
   if (!TRACK_TYPES.has(type)) return;
   const z = f.zone || zoneOf(req), sid = String(f.sid || req?.headers.get('x-sid') || '').slice(0, 40) || null;
   try {
-    await env.DB.prepare('INSERT INTO track (ts,sid,type,country,region,city,store,q,url,price_cents,order_id,extra) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
+    await env.DB.prepare('INSERT INTO track (ts,sid,type,country,region,city,store,q,url,price_cents,order_id,extra,user_id,ip) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
       .bind(Date.now(), sid, type, z.country, z.region, z.city, f.store || null, f.q ? String(f.q).slice(0, 160) : null, f.url ? String(f.url).slice(0, 600) : null,
-        Number.isFinite(f.price) ? Math.round(f.price) : null, f.order || null, f.extra ? JSON.stringify(f.extra).slice(0, 500) : null).run();
+        Number.isFinite(f.price) ? Math.round(f.price) : null, f.order || null, f.extra ? JSON.stringify(f.extra).slice(0, 500) : null, f.user || null, req?.headers.get('cf-connecting-ip') || null).run();
   } catch (e) { console.log('track failed', e.message); }
 }
 
@@ -75,9 +80,11 @@ function publicOrder(o, events) {
   return {
     id: o.id, created_at: o.created_at, status: o.status, statusText: STATUS[o.status] || o.status, plan: o.plan, method: o.method,
     amount_due: o.amount_due, amount_paid: o.amount_paid, totals: o.totals, delivery: o.delivery,
-    customer: { name: o.customer.name, city: o.customer.city },
+    customer: { name: o.customer.name, city: o.customer.city, deliveryType: o.customer.deliveryType || 'home', address: o.customer.address }, pickup: o.customer.deliveryType === 'pickup' ? PICKUP : null,
     items: o.items.map((i) => ({ title: i.title, store: i.store, qty: i.qty, image: i.image, lineBdt: i.lineBdt, buy: i.buy?.status || null })),
-    merchantOrders: (o.zinc?.groups || []).flatMap((g) => g.merchant_order_ids || []), events,
+    merchantOrders: (o.zinc?.groups || []).flatMap((g) => g.merchant_order_ids || []),
+    // customers only see customer-friendly history (no supplier / internal purchasing notes)
+    events: (events || []).filter((e) => !/zinc|supplier|by hand|auto purchase|: (pending|in_progress|order_placed|order_failed|cancelled|cancelled_by_retailer)$/i.test(e.text)),
   };
 }
 
@@ -100,7 +107,7 @@ async function placeWithZinc(env, order) {
   for (const [retailer, items] of Object.entries(groups)) {
     if (items.every((i) => i.manual) || zinc.MANUAL_RETAILERS[retailer] || retailer === 'other') {
       results.push({ retailer, id: null, status: 'buy_by_hand', merchant_order_ids: [], tracking: [] });
-      await addEvent(env, order.id, `${zinc.retailerName(retailer)}: buy by hand (not available on Zinc)`);
+      await addEvent(env, order.id, `${zinc.retailerName(retailer)}: buy by hand (no auto purchase for this store)`);
       continue;
     }
     const done = order.zinc?.groups?.find((g) => g.retailer === retailer && g.id && !['order_failed', 'cancelled'].includes(g.status));
@@ -109,7 +116,7 @@ async function placeWithZinc(env, order) {
     const shipC = Math.round((st?.shipUsd || 0) * 100), subC = items.reduce((a, it) => a + it.priceCents * it.qty, 0);
     const r = await zinc.placeOrder(env, { orderId: order.id, retailer, items, extraCents: shipC + Math.round((subC + shipC) * (order.totals?.taxRate || 0) / 100) });
     results.push({ retailer, id: r.id, status: r.status, max_price: r.max_price, merchant_order_ids: [], tracking: [] });
-    await addEvent(env, order.id, `Purchase sent to ${zinc.retailerName(retailer)} via Zinc (${r.id})`);
+    await addEvent(env, order.id, `Auto purchase sent to ${zinc.retailerName(retailer)} (${r.id})`);
   }
   return updateOrder(env, order.id, { zinc: { groups: results }, status: 'purchasing' });
 }
@@ -132,12 +139,12 @@ async function refreshZinc(env, order) {
   return updateOrder(env, order.id, { zinc: { groups }, status });
 }
 
-async function priceItems(env, raw, { live = false, liveFreshMs = 0 } = {}) {
+async function priceItems(env, raw, { live = false, liveFreshMs = 0, gate = null } = {}) {
   if (!Array.isArray(raw) || !raw.length || raw.length > 20) throw new Error('Your cart is empty or too big.');
   const items = [];
   for (const r of raw) {
     const qty = Math.max(1, Math.min(9, parseInt(r.qty, 10) || 1));
-    const p = await zinc.product(env, String(r.url || ''), { live, liveFreshMs });
+    const p = await zinc.product(env, String(r.url || ''), { live, liveFreshMs, gate });
     if (p && p.available === false) throw new Error(`“${p.title.slice(0, 60)}” is out of stock at ${p.store} right now. Please remove it.`);
     if (!p || !p.priceCents) throw new Error('Price not available for one item. Please remove it and try again.');
     const it = { url: p.url, retailer: p.retailer, store: p.store, title: p.title, image: p.image, priceCents: p.priceCents, kg: p.kg || null, qty, option: String(r.option || '').slice(0, 60) };
@@ -149,13 +156,13 @@ async function priceItems(env, raw, { live = false, liveFreshMs = 0 } = {}) {
 }
 // Real US delivery cost + seller type from Zinc offers for every Amazon/Walmart/Best Buy item (saved 24 h),
 // so a marketplace seller's own shipping is never missed — WOOW can't charge the customer later.
-async function addUsShipping(env, items) {
+async function addUsShipping(env, items, gate = null) {
   let n = 0;
   for (const it of items) {
     if (Number.isFinite(it.shipCents) || it.thirdParty || n >= 10 || !zinc.OFFER_RETAILERS.includes(it.retailer)) continue;
     n++;
     const rec = await zinc.recall(env, it.url, Infinity);
-    const r = await zinc.shippingCents(env, rec || it);
+    const r = await zinc.shippingCents(env, rec || it, gate);
     if (r) { if (Number.isFinite(r.cents)) it.shipCents = r.cents; if (r.thirdParty) it.thirdParty = true; }
   }
   return items;
@@ -176,37 +183,61 @@ const askLogin = (env) => new Response(env.ADMIN_PASSWORD ? 'Login required' : '
 // ───────── routes ─────────
 async function handle(req, env, ctx) {
   const url = new URL(req.url), path = url.pathname, m = req.method, origin = env.PUBLIC_URL || url.origin;
+  let _me; const me = async () => (_me === undefined ? (_me = await auth.currentUser(env, req)) : _me);
+  const gateFor = async (pr) => makeGate(env, req, await me(), pr || (await getPricing(env.DB)));
+  const secure = url.protocol === 'https:';
+  const withCookie = (res, c) => { res.headers.append('Set-Cookie', c); return res; };
 
-  if (path === '/admin' || path === '/admin.html' || path.startsWith('/api/admin')) {
-    if (!(await isAdmin(req, env))) return askLogin(env);
-    if (!path.startsWith('/api/')) return env.ASSETS.fetch(new Request(url.origin + '/admin', req));
+  if (path === '/admin' || path === '/admin.html' || path === '/admin.js' || path.startsWith('/api/admin')) {
+    const ip = req.headers.get('cf-connecting-ip') || '';
+    if (await auth.tooManyFails(env, [['adm:' + ip, 10]])) return new Response('Too many wrong logins. Try again in 15 minutes.', { status: 429 });
+    if (!(await isAdmin(req, env))) { if (req.headers.get('authorization')) await auth.addFail(env, 'adm:' + ip); return askLogin(env); }
+    if (path === '/admin.js') { const r = await env.ASSETS.fetch(req); const x = new Response(r.body, r); x.headers.set('Cache-Control', 'private, no-store'); return x; }
+    if (!path.startsWith('/api/')) { const r = await env.ASSETS.fetch(new Request(url.origin + '/admin', req)); const x = new Response(r.body, r); x.headers.set('Cache-Control', 'private, no-store'); x.headers.set('X-Robots-Tag', 'noindex'); return x; }
     return adminApi(req, env, ctx, path, m);
   }
 
   if (path === '/api/config') {
     const p = await getPricing(env.DB);
     return json({
-      demo: { zinc: !env.ZINC_API_KEY, payments: !ssl.paymentsLive(env) }, rate: p.rate, feePercent: p.feePercent, minFee: p.minFee, kgRate: p.kgRate,
+      demo: { catalog: !env.ZINC_API_KEY, payments: !ssl.paymentsLive(env) }, me: auth.publicUser(await me()), pickup: PICKUP, homeDeliveryFee: p.homeDeliveryFee || 0, mapsKey: env.GOOGLE_MAPS_KEY || '', rate: p.rate, feePercent: p.feePercent, minFee: p.minFee, kgRate: p.kgRate,
       defaultKg: p.defaultKg, packagingPercent: p.packagingPercent, usShipping: p.usShipping, warehouseState: p.warehouseState, taxRate: taxRate(p), brokerageList: p.brokerageList, whatsapp: env.WHATSAPP_NUMBER || '8801816369701', rateLockMinutes: p.rateLockMinutes, flights: upcomingFlights(new Date(Date.now() + 6 * 3600e3), p, 12), transitDays: p.transitDays, dhakaDaysAfterFlight: p.dhakaDaysAfterFlight,
       stores: zinc.SEARCH_RETAILERS.map((r) => ({ id: r, name: zinc.retailerName(r) })),
       bank: { name: env.BANK_ACCOUNT_NAME || 'WOOW Global (BD)', number: env.BANK_ACCOUNT_NUMBER || '—', branch: env.BANK_NAME_BRANCH || '—' },
     });
   }
 
+  // ── customer accounts ──
+  if (path === '/api/auth/signup' && m === 'POST') {
+    if (limited(req, 'su', 8, 60000)) return bad('Too many tries, please wait a minute.', 429);
+    try { const r = await auth.signup(env, req, await body(req)); return withCookie(json({ user: r.user }), auth.setCookie(r.token, secure)); } catch (e) { return bad(e.message); }
+  }
+  if (path === '/api/auth/login' && m === 'POST') {
+    if (limited(req, 'li', 15, 60000)) return bad('Too many tries, please wait a minute.', 429);
+    try { const r = await auth.login(env, req, await body(req)); return withCookie(json({ user: r.user }), auth.setCookie(r.token, secure)); } catch (e) { return bad(e.message, 401); }
+  }
+  if (path === '/api/auth/logout' && m === 'POST') { await auth.logout(env, req); return withCookie(json({ ok: true }), auth.clearCookie()); }
+  if (path === '/api/me') { const u = await me(); return u ? json({ user: auth.publicUser(u) }) : bad('login', 401); }
+  if (path === '/api/me/address' && m === 'POST') {
+    const u = await me(); if (!u) return bad('login', 401);
+    const b = await body(req);
+    try { return json({ addresses: b.delete ? await auth.deleteAddress(env, u, String(b.delete)) : await auth.saveAddress(env, u, b) }); } catch (e) { return bad(e.message); }
+  }
+
   if (path === '/api/search') {
     if (limited(req, 's', 30, 60000)) return bad('Too many searches, please wait a moment.', 429);
     const q = url.searchParams.get('q') || '', st = url.searchParams.get('store') || 'all', pr = await getPricing(env.DB);
     // home/store rails (same words every day) are shared for 24 h; customer searches for 6 h
-    const results = await zinc.search(env, ctx, q, st, { budgetCents: pr.zincDailyBudgetCents, ttlMs: url.searchParams.get('rail') === '1' ? 864e5 : 6 * 3600e3 });
-    if (url.searchParams.get('t') !== '0') ctx.waitUntil(track(env, req, 'search', { q: q || '(popular)', store: st, extra: { n: results.length } }));
+    const results = await zinc.search(env, ctx, q, st, { budgetCents: pr.zincDailyBudgetCents, ttlMs: url.searchParams.get('rail') === '1' ? 864e5 : 6 * 3600e3, gate: await gateFor(pr) });
+    if (url.searchParams.get('t') !== '0') ctx.waitUntil(track(env, req, 'search', { q: q || '(popular)', store: st, user: (await me())?.id, extra: { n: results.length } }));
     return json({ results });
   }
 
   if (path === '/api/compare') {
     if (limited(req, 'c', 40, 60000)) return bad('Too many requests, please wait a moment.', 429);
-    const d = await zinc.compare(env, ctx, url.searchParams.get('url') || '');
-    ctx.waitUntil(track(env, req, 'compare', { url: d.base?.url, store: d.base?.retailer, extra: { offers: d.offers.length, source: d.source } }));
-    return json(d);
+    const d = await zinc.compare(env, ctx, url.searchParams.get('url') || '', await gateFor());
+    ctx.waitUntil(track(env, req, 'compare', { url: d.base?.url, store: d.base?.retailer, user: (await me())?.id, extra: { offers: d.offers.length } }));
+    return json({ base: zinc.pub(d.base), offers: d.offers.map(zinc.pub) });
   }
 
   if (path === '/api/link' && m === 'POST') {
@@ -215,42 +246,46 @@ async function handle(req, env, ctx) {
     const where = zinc.storeFromUrl(u);
     if (!where) return bad('Please paste a full product link (starting with https://).');
     try {
-      const p = await zinc.product(env, u, { fresh: true });
-      if (p && p.priceCents) { ctx.waitUntil(track(env, req, 'link', { url: p.url, store: p.retailer, q: p.title, price: p.priceCents })); return json({ product: p }); }
-    } catch (e) { if (!e.manual) console.log('link lookup failed', e.message); }
+      const p = await zinc.product(env, u, { fresh: true, gate: await gateFor() });
+      if (p && p.priceCents) { ctx.waitUntil(track(env, req, 'link', { url: p.url, store: p.retailer, q: p.title, price: p.priceCents, user: (await me())?.id })); return json({ product: zinc.pub(p) }); }
+    } catch (e) { if (!e.manual) console.log('link lookup failed', e.detail || e.message); if (e.public && !e.detail) return bad(e.message, 429); }
     // Not available automatically (e.g. Costco): offer a price quote from the WOOW team.
     ctx.waitUntil(track(env, req, 'link', { url: u, store: where.retailer, extra: { manual: true } }));
     return json({ manual: true, url: u, retailer: where.retailer, store: where.store });
   }
 
   if (path === '/api/quote' && m === 'POST') {
-    const b = await body(req), pr = await getPricing(env.DB), items = await priceItems(env, b.items);
-    if (b.ship) await addUsShipping(env, items);
-    if (b.checkout) { ctx.waitUntil(track(env, req, 'checkout', { price: items.reduce((a, i) => a + i.priceCents * i.qty, 0), extra: { items: items.length } })); }
-    return json({ quote: quote(items, pr), delivery: deliveryPlan(items.map((i) => i.retailer), pr) });
+    const u = await me(); if (!u) return bad('login', 401);
+    const b = await body(req), pr = await getPricing(env.DB), gate = await gateFor(pr), items = await priceItems(env, b.items, { gate });
+    if (b.ship) await addUsShipping(env, items, gate);
+    if (b.checkout) { ctx.waitUntil(track(env, req, 'checkout', { user: u.id, price: items.reduce((a, i) => a + i.priceCents * i.qty, 0), extra: { items: items.length } })); }
+    return json({ quote: quote(items, pr, { pickup: b.delivery === 'pickup' }), delivery: deliveryPlan(items.map((i) => i.retailer), pr) });
   }
 
   if (path === '/api/orders' && m === 'POST') {
     if (limited(req, 'o', 10, 60000)) return bad('Too many orders, please wait a moment.', 429);
-    const b = await body(req), c = b.customer || {}, plan = b.plan || 'full', method = b.method || 'bkash', phone = bdPhone(c.phone);
-    if (!c.name || String(c.name).trim().length < 2) return bad('Please enter your name.');
-    if (!phone) return bad('Please enter a valid Bangladeshi mobile number (01XXXXXXXXX).');
-    if (!c.address || String(c.address).trim().length < 6) return bad('Please enter your delivery address.');
+    const u = await me(); if (!u) return bad('login', 401);
+    const b = await body(req), plan = b.plan || 'full', method = b.method || 'bkash', pickup = b.delivery === 'pickup';
+    const addr = pickup ? null : (u.addresses || []).find((a) => a.id === b.addressId);
+    if (!pickup && !addr) return bad('Please choose a delivery address, or pick up free from the WOOW office.');
+    const phone = addr?.phone || u.phone;
     if (!['full', 'split'].includes(plan)) return bad('Invalid payment plan.');
     if (!['bkash', 'nagad', 'card', 'bank'].includes(method)) return bad('Invalid payment method.');
     // Fresh price check from the store right now, before taking any money.
-    const pr = await getPricing(env.DB), items = await priceItems(env, b.items, { live: true, liveFreshMs: (pr.liveFreshMinutes ?? 15) * 60000 });
-    await addUsShipping(env, items);
-    const q = quote(items, pr), due = plan === 'full' ? q.total : q.payNowSplit;
+    const pr = await getPricing(env.DB), gate = await gateFor(pr), items = await priceItems(env, b.items, { live: true, liveFreshMs: (pr.liveFreshMinutes ?? 15) * 60000, gate });
+    await addUsShipping(env, items, gate);
+    const q = quote(items, pr, { pickup }), due = plan === 'full' ? q.total : q.payNowSplit;
     const expected = Number(b.expectedTotal);
     if (expected && Math.abs(expected - q.total) >= 1) {
       return json({ error: 'price_changed', message: `The store price changed. New total: ৳${q.total.toLocaleString('en-US')} (was ৳${Math.round(expected).toLocaleString('en-US')}). Please check and press Pay again.`, quote: q, delivery: deliveryPlan(items.map((i) => i.retailer), pr) }, 409);
     }
     const id = await newOrderId(env), t = nowIso();
-    const customer = { name: String(c.name).trim().slice(0, 80), phone, email: String(c.email || '').trim().slice(0, 120), address: String(c.address).trim().slice(0, 300), city: String(c.city || 'Dhaka').trim().slice(0, 60), zone: zoneOf(req), sid: String(req.headers.get('x-sid') || '').slice(0, 40) };
-    ctx.waitUntil(track(env, req, 'order', { order: id, price: q.total, extra: { items: items.length, plan, method, stores: [...new Set(items.map((i) => i.retailer))] } }));
-    await env.DB.prepare('INSERT INTO orders (id,created_at,updated_at,status,phone,customer,items,totals,plan,method,amount_due,delivery) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
-      .bind(id, t, t, 'awaiting_payment', phone, JSON.stringify(customer), JSON.stringify(q.lines), JSON.stringify(q), plan, method, due, JSON.stringify(deliveryPlan(items.map((i) => i.retailer), pr))).run();
+    const customer = pickup
+      ? { name: u.name, phone: u.phone, email: u.email || '', address: 'Pick up: ' + PICKUP.address, city: 'Dhaka', deliveryType: 'pickup', zone: zoneOf(req), sid: String(req.headers.get('x-sid') || '').slice(0, 40) }
+      : { name: addr.name || u.name, phone, email: u.email || '', address: [addr.line, addr.area].filter(Boolean).join(', '), city: addr.city || 'Dhaka', deliveryType: 'home', addr, zone: zoneOf(req), sid: String(req.headers.get('x-sid') || '').slice(0, 40) };
+    ctx.waitUntil(track(env, req, 'order', { order: id, user: u.id, price: q.total, extra: { items: items.length, plan, method, delivery: pickup ? 'pickup' : 'home', stores: [...new Set(items.map((i) => i.retailer))] } }));
+    await env.DB.prepare('INSERT INTO orders (id,created_at,updated_at,status,phone,customer,items,totals,plan,method,amount_due,delivery,user_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      .bind(id, t, t, 'awaiting_payment', phone, JSON.stringify(customer), JSON.stringify(q.lines), JSON.stringify(q), plan, method, due, JSON.stringify(deliveryPlan(items.map((i) => i.retailer), pr)), u.id).run();
     await addEvent(env, id, 'Order created');
     if (method === 'bank') return json({ orderId: id, next: { type: 'bank', amount: due } });
     if (!ssl.paymentsLive(env)) return json({ orderId: id, next: { type: 'redirect', url: `/pay-demo?order=${id}&phone=${phone}&method=${method}` } });
@@ -263,19 +298,19 @@ async function handle(req, env, ctx) {
   // Customer asks WOOW for a price (stores we can't price automatically, e.g. Costco).
   if (path === '/api/quote-request' && m === 'POST') {
     if (limited(req, 'q', 6, 60000)) return bad('Too many requests, please wait a moment.', 429);
-    const b = await body(req), c = b.customer || {}, phone = bdPhone(c.phone), it = b.item || {};
-    if (!c.name || String(c.name).trim().length < 2) return bad('Please enter your name.');
-    if (!phone) return bad('Please enter a valid Bangladeshi mobile number (01XXXXXXXXX).');
-    if (!c.address || String(c.address).trim().length < 6) return bad('Please enter your delivery address.');
+    const u = await me(); if (!u) return bad('login', 401);
+    const b = await body(req), it = b.item || {}, phone = u.phone;
+    const ad = (u.addresses || []).find((a) => a.isDefault) || (u.addresses || [])[0];
+    const c = { name: u.name, email: u.email, address: ad ? [ad.line, ad.area].filter(Boolean).join(', ') : 'To be confirmed', city: ad?.city || 'Dhaka' };
     const where = zinc.storeFromUrl(String(it.url || ''));
     if (!where) return bad('Please paste a full product link.');
     const qty = Math.max(1, Math.min(99, parseInt(it.qty, 10) || 1));
     const usd = Math.max(0, Math.min(20000, Number(it.usd) || 0));
     const item = { url: String(it.url).slice(0, 600), retailer: where.retailer, store: where.store, title: String(it.title || 'Product from ' + where.store).trim().slice(0, 160), image: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="200" height="200" fill="#F5F5F7"/><text x="100" y="125" font-size="80" text-anchor="middle">🛍️</text></svg>'), priceCents: Math.round(usd * 100), kg: null, qty, option: String(it.option || '').slice(0, 60), manual: true, customerNote: String(it.note || '').slice(0, 300) };
     const pr = await getPricing(env.DB), q = quote([item], pr), id = await newOrderId(env), t = nowIso();
-    const customer = { name: String(c.name).trim().slice(0, 80), phone, email: String(c.email || '').trim().slice(0, 120), address: String(c.address).trim().slice(0, 300), city: String(c.city || 'Dhaka').trim().slice(0, 60) };
-    await env.DB.prepare('INSERT INTO orders (id,created_at,updated_at,status,phone,customer,items,totals,plan,method,amount_due,delivery) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
-      .bind(id, t, t, 'quote_requested', phone, JSON.stringify(customer), JSON.stringify(q.lines), JSON.stringify(q), 'full', 'bkash', 0, JSON.stringify(deliveryPlan([where.retailer], pr))).run();
+    const customer = { name: String(c.name).trim().slice(0, 80), phone, email: String(c.email || '').trim().slice(0, 120), address: String(c.address).trim().slice(0, 300), city: String(c.city || 'Dhaka').trim().slice(0, 60), deliveryType: ad ? 'home' : 'pickup', addr: ad || null };
+    await env.DB.prepare('INSERT INTO orders (id,created_at,updated_at,status,phone,customer,items,totals,plan,method,amount_due,delivery,user_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      .bind(id, t, t, 'quote_requested', phone, JSON.stringify(customer), JSON.stringify(q.lines), JSON.stringify(q), 'full', 'bkash', 0, JSON.stringify(deliveryPlan([where.retailer], pr)), u.id).run();
     await addEvent(env, id, `Price quote requested (${where.store})`);
     ctx.waitUntil(track(env, req, 'quote', { order: id, url: item.url, store: where.retailer, q: item.title, price: item.priceCents }));
     return json({ orderId: id, phone });
@@ -305,11 +340,17 @@ async function handle(req, env, ctx) {
     return res;
   }
 
+  // Personal picks: this device's searches/views/cart + people with similar taste + shoppers from the same social app.
+  if (path === '/api/foryou' && m === 'POST') {
+    if (limited(req, 'fy', 20, 60000)) return json({ items: [] });
+    return json(await forYou(env, await body(req), await me(), String(req.headers.get('x-sid') || '').slice(0, 40)));
+  }
+
   // Browser beacons: product views, add to cart, recently-viewed clicks (no personal data).
   if (path === '/api/t' && m === 'POST') {
     if (limited(req, 't', 120, 60000)) return json({ ok: false });
     const b = await body(req);
-    if (['visit', 'view', 'cart', 'recent'].includes(b.type)) ctx.waitUntil(track(env, req, b.type, { sid: b.sid, store: b.store, q: b.title, url: b.url, price: Number(b.price) }));
+    if (['visit', 'view', 'cart', 'recent'].includes(b.type)) ctx.waitUntil(track(env, req, b.type, { sid: b.sid, store: b.store, q: b.title, url: b.url, price: Number(b.price), user: (await me())?.id, extra: b.ref ? { ref: String(b.ref).slice(0, 20) } : null }));
     return json({ ok: true });
   }
 
@@ -340,10 +381,12 @@ async function handle(req, env, ctx) {
 
   // Customer's order history: proven by one order number + the same mobile.
   if (path === '/api/my-orders') {
-    const phone = bdPhone(url.searchParams.get('phone')), id = String(url.searchParams.get('id') || '').toUpperCase();
-    const o = phone && (await env.DB.prepare('SELECT id FROM orders WHERE id=? AND phone=?').bind(id, phone).first());
+    const u = await me();
+    let phone = bdPhone(url.searchParams.get('phone')); const id = String(url.searchParams.get('id') || '').toUpperCase();
+    const o = u || (phone && (await env.DB.prepare('SELECT id FROM orders WHERE id=? AND phone=?').bind(id, phone).first()));
     if (!o) return bad('Order not found', 404);
-    const r = await env.DB.prepare('SELECT id,created_at,status,amount_due,amount_paid,items FROM orders WHERE phone=? ORDER BY created_at DESC LIMIT 30').bind(phone).all();
+    if (u) phone = u.phone;
+    const r = await env.DB.prepare('SELECT id,created_at,status,amount_due,amount_paid,items FROM orders WHERE phone=? OR user_id=? ORDER BY created_at DESC LIMIT 30').bind(phone, u?.id || '-').all();
     return json({ phone, orders: r.results.map((x) => { const it = J(x.items) || []; return { id: x.id, created_at: x.created_at, status: x.status, statusText: STATUS[x.status] || x.status, amount_due: x.amount_due, amount_paid: x.amount_paid, count: it.reduce((a, i) => a + (i.qty || 1), 0), title: it[0]?.title || '', store: it[0]?.store || '', image: it[0]?.image || null, more: Math.max(0, it.length - 1) }; }) });
   }
 
@@ -419,6 +462,17 @@ async function adminApi(req, env, ctx, path, m) {
   }
   let em;
   if ((em = path.match(/^\/api\/admin\/expenses\/(\d+)\/delete$/)) && m === 'POST') { await env.DB.prepare('DELETE FROM expenses WHERE id=?').bind(+em[1]).run(); return json({ ok: true }); }
+  if (path === '/api/admin/security') {
+    if (m === 'POST') { const b = await body(req); await env.DB.prepare('DELETE FROM guard_block WHERE who=?').bind(String(b.who || '')).run(); return json({ ok: true }); }
+    const now = Date.now();
+    const [blocked, users, newUsers, fails] = await Promise.all([
+      env.DB.prepare('SELECT who, until, reason, at, hits FROM guard_block ORDER BY at DESC LIMIT 50').all().then((r) => r.results).catch(() => []),
+      env.DB.prepare('SELECT COUNT(*) n FROM users').first().catch(() => ({ n: 0 })),
+      env.DB.prepare('SELECT name, phone, created_at, last_login FROM users ORDER BY created_at DESC LIMIT 10').all().then((r) => r.results).catch(() => []),
+      env.DB.prepare("SELECT k, COUNT(*) n FROM auth_fail WHERE ts > ? GROUP BY k ORDER BY n DESC LIMIT 10").bind(now - 864e5).all().then((r) => r.results).catch(() => []),
+    ]);
+    return json({ blocked: blocked.map((b) => ({ ...b, active: b.until > now })), users: users.n, newUsers, fails });
+  }
   if (path === '/api/admin/settings') { const p = m === 'POST' ? await savePricing(env.DB, await body(req)) : await getPricing(env.DB); return json({ pricing: p, upcoming: upcomingFlights(new Date(Date.now() + 6 * 3600e3), p, 10), flightsApi: !!env.FLIGHTS_API_KEY }); }
   const mm = path.match(/^\/api\/admin\/orders\/([A-Z0-9-]+)(?:\/([a-z-]+))?$/);
   if (!mm) return bad('Not found', 404);
@@ -431,7 +485,7 @@ async function adminApi(req, env, ctx, path, m) {
   if (action === 'confirm-payment') return json({ order: await markPaid(env, ctx, o, Number(b.amount) || o.amount_due - o.amount_paid, { method: o.method, confirmedBy: 'admin' }) });
   if (action === 'place') {
     if (!['paid', 'purchasing', 'problem'].includes(o.status)) return bad('Order must be paid first.');
-    return json({ order: await placeWithZinc(env, o) });
+    try { return json({ order: await placeWithZinc(env, o) }); } catch (e) { return bad(e.detail || e.message, 502); }
   }
   if (action === 'refresh') return json({ order: await refreshZinc(env, o) });
   // Purchase sheet: agent marks one item bought / can't buy → GENI updates the customer's order page.
@@ -465,6 +519,57 @@ async function adminApi(req, env, ctx, path, m) {
     return json({ order: n });
   }
   return bad('Unknown action', 404);
+}
+
+// ───────── "Recommended for you" — customer behaviour model (WOOW data only, no paid lookups) ─────────
+const STOPW = new Set('the a an and or for with of in on to by from pack count oz fl ct pcs piece pieces new size set men women mens womens kids inch black white blue red pink green gray grey small large medium best sellers popular'.split(' '));
+const words = (t) => String(t || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter((w) => w.length > 2 && !STOPW.has(w) && !/^\d+$/.test(w));
+const SOCIAL = { facebook: 'Facebook', fb: 'Facebook', instagram: 'Instagram', ig: 'Instagram', tiktok: 'TikTok', youtube: 'YouTube', whatsapp: 'WhatsApp', messenger: 'Messenger' };
+async function forYou(env, b, user, sid) {
+  const DB = env.DB, now = Date.now(), since = now - 30 * 864e5;
+  const all = (sql, ...a) => DB.prepare(sql).bind(...a).all().then((r) => r.results).catch(() => []);
+  const arr = (x, n) => (Array.isArray(x) ? x.map(String).filter(Boolean).slice(0, n) : []);
+  // 1) signals from this device + this account
+  const mine = await all("SELECT type, q, url, store FROM track WHERE (sid=? OR user_id=?) AND ts>? AND type IN ('search','view','cart','link') ORDER BY id DESC LIMIT 300", sid || '-', user?.id || '-', since);
+  const seen = new Set([...arr(b.recent, 30), ...arr(b.cart, 30), ...mine.filter((r) => r.url).map((r) => r.url)]);
+  const kw = {}; const add = (t, w) => words(t).forEach((x) => { kw[x] = (kw[x] || 0) + w; });
+  arr(b.searches, 20).forEach((q, i) => add(q, 4 - Math.min(3, i / 5)));
+  mine.forEach((r, i) => { const w = (r.type === 'cart' ? 3 : r.type === 'search' ? 2.5 : 1) * (i < 30 ? 1.5 : 1); if (r.q && r.q !== '(popular)') add(r.q, w); });
+  arr(b.titles, 20).forEach((t) => add(t, 1));
+  const topWords = Object.entries(kw).sort((a, c) => c[1] - a[1]).slice(0, 5).map(([w]) => w);
+  const out = new Map(); // url → { why, score }
+  const put = (url, why, score) => { if (!url || seen.has(url)) return; const o = out.get(url); if (!o || o.score < score) out.set(url, { why, score: (o?.score || 0) * 0.3 + score }); };
+  // 2) people with similar taste: viewed/carted the same products → what else they viewed, carted, bought
+  const myUrls = [...seen].slice(0, 25);
+  if (myUrls.length) {
+    const ph = myUrls.map(() => '?').join(',');
+    const co = await all(`SELECT url, SUM(CASE type WHEN 'cart' THEN 3 ELSE 1 END) w FROM track WHERE ts>? AND type IN ('view','cart') AND url IS NOT NULL AND sid IN (SELECT DISTINCT sid FROM track WHERE url IN (${ph}) AND sid IS NOT NULL AND sid != ? LIMIT 200) GROUP BY url ORDER BY w DESC LIMIT 30`, since, ...myUrls, sid || '-');
+    co.forEach((r) => put(r.url, 'Shoppers like you liked this', 10 + r.w));
+    const bought = await all("SELECT items FROM orders WHERE amount_paid > 0 AND created_at > ? ORDER BY created_at DESC LIMIT 200", new Date(since).toISOString());
+    for (const o of bought) { const it = J(o.items) || []; if (it.some((x) => seen.has(x.url))) it.forEach((x) => put(x.url, 'Bought together by other customers', 25)); }
+  }
+  // 3) what this customer is thinking about: saved products matching their top words (free, from WOOW's catalog)
+  for (const [i, w] of topWords.entries()) {
+    const rows = await all("SELECT url FROM products WHERE lower(json_extract(data,'$.title')) LIKE ? AND json_extract(data,'$.priceCents') > 0 ORDER BY seen DESC LIMIT 6", '%' + w.replace(/[%_]/g, '') + '%');
+    rows.forEach((r, k) => put(r.url, `Because you looked at “${w}”`, 20 - i * 2 - k * 0.5));
+  }
+  // 4) social trend: what shoppers who came from the same app (Facebook, TikTok…) are viewing
+  const ref = SOCIAL[String(b.ref || '').toLowerCase()];
+  if (ref) {
+    const key = Object.keys(SOCIAL).filter((k) => SOCIAL[k] === ref);
+    const soc = await all(`SELECT url, COUNT(*) n FROM track WHERE type IN ('view','cart') AND ts>? AND url IS NOT NULL AND sid IN (SELECT DISTINCT sid FROM track WHERE type='visit' AND ts>? AND (${key.map(() => 'extra LIKE ?').join(' OR ')}) LIMIT 300) GROUP BY url ORDER BY n DESC LIMIT 12`, since, since, ...key.map((k) => `%"ref":"${k}"%`));
+    soc.forEach((r) => put(r.url, `Trending with ${ref} shoppers`, 12 + r.n));
+  }
+  // 5) fill with what Bangladesh is viewing now
+  if (out.size < 12) (await all("SELECT url, COUNT(*) n FROM track WHERE type IN ('view','cart') AND ts>? AND url IS NOT NULL GROUP BY url ORDER BY n DESC LIMIT 20", now - 7 * 864e5)).forEach((r) => put(r.url, 'Popular in Bangladesh', 5 + r.n / 10));
+  const pick = [...out.entries()].sort((a, c) => c[1].score - a[1].score).slice(0, 24);
+  if (!pick.length) return { items: [], topics: topWords };
+  const rows = await all(`SELECT data FROM products WHERE url IN (${pick.map(() => '?').join(',')})`, ...pick.map(([u]) => u));
+  const by = Object.fromEntries(rows.map((r) => { try { const p = JSON.parse(r.data); return [p.url, p]; } catch { return [null, null]; } }));
+  const tk = new Set();
+  const items = pick.map(([u, o]) => by[u] && by[u].priceCents && { ...zinc.pub(by[u]), why: o.why })
+    .filter((p) => { if (!p || /#/.test(p.url)) return false; const k = p.title.toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 40); if (tk.has(k)) return false; tk.add(k); return true; }).slice(0, 16);
+  return { items, topics: topWords, personal: !!(topWords.length || myUrls.length) };
 }
 
 async function feed(env) {
@@ -558,7 +663,11 @@ async function dashboard(env, days) {
 export default {
   async fetch(req, env, ctx) {
     try { return await handle(req, env, ctx); }
-    catch (e) { console.error(e); return bad(e.message || 'Something went wrong', 500); }
+    catch (e) {
+      console.error(e.detail || e.message, e.stack);
+      const admin = new URL(req.url).pathname.startsWith('/api/admin');
+      return bad(admin ? e.detail || e.message : e.public || /^(Your cart|Price not|“|Please|This store)/.test(e.message || '') ? e.message : 'Something went wrong. Please try again.', 500);
+    }
   },
   // Every 30 minutes: check Zinc for store order numbers and tracking.
   async scheduled(event, env, ctx) {

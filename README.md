@@ -14,7 +14,10 @@ Runs entirely on **Cloudflare Workers + D1** — no server to manage.
 | `worker/zinc.js` | Zinc v2: search, product details, place order, order status (demo data when no key) |
 | `worker/sslcommerz.js` | SSLCommerz payment start + server-side validation |
 | `worker/pricing.js` | Rate, fee, per-kg shipping, delivery plan (warehouse → flight → Dhaka) |
-| `public/` | Shop (`index.html`), tracking (`order.html`), admin (`admin.html`), demo payment |
+| `web/` | **Edit here.** Readable website sources (shop, tracking, admin) |
+| `public/` | Built, minified copy served to browsers — run `npm run build` after editing `web/` |
+| `worker/auth.js` | Customer accounts (mobile + password, PBKDF2), sessions, saved addresses |
+| `worker/guard.js` | Bot & paid-lookup guard (per visitor / account / IP), blocks shown in Admin |
 | `wrangler.jsonc` | Worker config, D1 binding, cron, non-secret settings |
 | `schema.sql` | Database tables (already created in the `woow-shop-db` D1 database) |
 
@@ -22,7 +25,7 @@ Runs entirely on **Cloudflare Workers + D1** — no server to manage.
 
 Connect this repo in Cloudflare → Workers & Pages → Create → **Import a repository** (project name `woow-shop`). Every push to `main` deploys automatically.
 
-Secrets (Settings → Variables and Secrets, type **Secret**): `ADMIN_PASSWORD`, `ZINC_API_KEY`, `SSLCZ_STORE_ID`, `SSLCZ_STORE_PASSWORD`.
+Secrets (Settings → Variables and Secrets, type **Secret**): `ADMIN_PASSWORD`, `ZINC_API_KEY`, `SSLCZ_STORE_ID`, `SSLCZ_STORE_PASSWORD`, optional `FLIGHTS_API_KEY`, optional `GOOGLE_MAPS_KEY` (browser key restricted to your domain, Places API) for Google-verified addresses.
 
 Webhooks: Zinc → `https://YOUR-DOMAIN/webhooks/zinc` · SSLCommerz IPN → `https://YOUR-DOMAIN/pay/ipn`
 
@@ -53,6 +56,11 @@ Shared 6 h search cache (D1, same answer for every customer) · home page rails 
 `awaiting_payment` → (`bank_review`) → `paid` → **Buy with Zinc** → `purchasing` → `purchased` → `at_warehouse` → `in_flight` → `in_dhaka` → `delivered`
 
 ## Safety
+
+- Customers must sign in (mobile + password) to use the cart, request a price or pay. Wrong passwords are rate-limited; admin login locks for 15 min after 10 wrong tries.
+- Customer pages never mention the supplier; supplier errors are replaced by plain messages; internal purchase notes are hidden from order tracking; `admin.js` is served only after admin login.
+- Paid store lookups are guarded: bots get saved data only; too many lookups/views in 30 min blocks paid lookups for that visitor (Admin → Dashboard → Security).
+- `public/_headers` sets CSP, HSTS and other security headers.
 
 - Prices are recalculated on the server from saved product data; the browser can't change them.
 - Payments count only after SSLCommerz validation; duplicate callbacks are ignored.

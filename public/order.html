@@ -10,15 +10,19 @@
 <body>
 <header class="hdr"><a class="logo" href="/" aria-label="WOOW home"><svg class="lg-s" viewBox="0 0 53.8 32" height="32" aria-hidden="true"><circle cx="36.83" cy="16" r="16" fill="#FFD400"/><path d="M49.30 15.56A12.48 12.48 0 0 0 45.96 7.49" stroke="#2E2E31" stroke-width="1.28" stroke-linecap="round" fill="none"/><circle cx="16" cy="16" r="16.80" fill="#2E2E31"/><circle cx="16" cy="16" r="16" fill="#FFD400"/><path d="M15.13 3.55A12.48 12.48 0 0 0 3.55 15.13" stroke="#2E2E31" stroke-width="1.28" stroke-linecap="round" fill="none"/><circle cx="18.34" cy="16" r="2.46" fill="#2E2E31"/><circle cx="26.45" cy="16" r="2.46" fill="#2E2E31"/><circle cx="34.42" cy="16" r="2.46" fill="#2E2E31"/></svg><span class="lg-t"><b>wOOw</b><small>Borderless Possibilities...</small></span><small class="lg-tag">Buy For Me</small></a><nav><a class="hb dk" href="/">🛍️ <span>Shop</span></a></nav></header>
 <main class="oc">
-  <div class="card sec" id="find">
-    <h1 style="margin-bottom:6px">Track your order</h1>
-    <p class="lead">Enter your order number and the mobile number you used.</p>
-    <div class="fg"><label>Order number<input class="inp" id="fId" placeholder="WB-123456"></label><label>Mobile<input class="inp" id="fPh" placeholder="01XXXXXXXXX" inputmode="tel"></label></div>
-    <button class="btn dk" style="margin-top:12px" onclick="find()">Show my order</button>
-    <div class="err" id="fErr"></div>
-  </div>
-  <div id="out"></div>
-  <div id="hist"></div>
+<div class="card sec" id="find">
+<h1 style="margin-bottom:6px">Track your order</h1>
+<p class="lead">Enter your order number and the mobile number you used.</p>
+<div class="fg"><label>Order number<input class="inp" id="fId" placeholder="WB-123456"></label><label>Mobile<input class="inp" id="fPh" placeholder="01XXXXXXXXX" inputmode="tel"></label></div>
+<button class="btn dk" style="margin-top:12px" onclick="find()">Show my order</button>
+<div class="err" id="fErr"></div>
+</div>
+<div id="out"></div>
+<div id="hist"></div>
+<footer class="ft">
+<div><b>🌍 WOOW GLOBAL · Contact us</b></div>
+<div class="ftc"><div><b>🇧🇩 Bangladesh Office</b><span>📍 House #254, Road #03, Baridhara DOHS, Dhaka</span><span>☎️ Hotline: <a href="tel:+8809649223322">+88 09649-223322</a></span><span>🕙 10 AM – 6 PM · Closed Fridays &amp; public holidays</span><span>🏢 Free pickup of your WOOW orders here</span></div></div>
+</footer>
 </main>
 <script>
 const $ = (id) => document.getElementById(id);
@@ -29,88 +33,91 @@ const WD = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'], MO = ['Jan','Feb','Mar',
 const fd = (s) => { const d = new Date(s + 'T12:00:00'); return WD[d.getDay()] + ' ' + d.getDate() + ' ' + MO[d.getMonth()]; };
 let CFG = {};
 async function find(id, phone) {
-  id = (id || $('fId').value).trim().toUpperCase(); phone = (phone || $('fPh').value).trim();
-  $('fErr').style.display = 'none';
-  const r = await fetch(`/api/track/${encodeURIComponent(id)}?phone=${encodeURIComponent(phone)}`);
-  const d = await r.json();
-  if (!r.ok) { $('fErr').textContent = d.error; $('fErr').style.display = 'block'; return; }
-  $('find').hidden = true; draw(d.order, phone); saveMine(d.order.id, phone); loadHist(d.order.id, phone, d.order.id);
+id = (id || $('fId').value).trim().toUpperCase(); phone = (phone || $('fPh').value).trim();
+$('fErr').style.display = 'none';
+const r = await fetch(`/api/track/${encodeURIComponent(id)}?phone=${encodeURIComponent(phone)}`);
+const d = await r.json();
+if (!r.ok) { $('fErr').textContent = d.error; $('fErr').style.display = 'block'; return; }
+$('find').hidden = true; draw(d.order, phone); saveMine(d.order.id, phone); loadHist(d.order.id, phone, d.order.id);
 }
 function draw(o, phone) {
-  const paidish = !['awaiting_payment', 'bank_review', 'cancelled'].includes(o.status);
-  const steps = [['paid', 'Paid in Taka'], ['purchasing', 'GENI is buying from the stores'], ['purchased', 'Bought — on the way to our US warehouse'], ['at_warehouse', 'At WOOW US warehouse'], ['in_flight', 'On the WOOW flight'], ['in_dhaka', 'In Dhaka, clearing customs'], ['delivered', 'Delivered to you']];
-  const ix = steps.findIndex((s) => s[0] === o.status);
-  const dates = o.delivery ? { at_warehouse: 'by ' + fd(o.delivery.warehouse), in_flight: fd(o.delivery.flight) + ' · ' + o.delivery.flightNo + (o.delivery.moved ? ' · new date' + (o.delivery.flightNote ? ' (' + o.delivery.flightNote + ')' : '') : ''), in_dhaka: fd(o.delivery.land), delivered: fd(o.delivery.deliverFrom) + ' – ' + fd(o.delivery.deliverTo) } : {};
-  let head = '';
-  if (o.status === 'awaiting_payment' && o.method === 'bank') {
-    head = `<div class="card sec"><h3>Send the bank transfer</h3>
-      <p style="margin:0;color:#86868B;font-size:13px">Send exactly <b style="color:#1D1D1F">${tk(o.amount_due)}</b> and write your order number as the reference.</p>
-      <div class="bank"><div><span>Account name</span><b>${esc(CFG.bank?.name)}</b></div><div><span>Account no.</span><b>${esc(CFG.bank?.number)}</b></div><div><span>Bank · branch</span><b>${esc(CFG.bank?.branch)}</b></div><div><span>Reference</span><b>${o.id}</b></div></div>
-      <label class="fg" style="display:block;margin-top:12px"><span style="font-size:12px;font-weight:700;color:#86868B">Transaction ID / reference after sending</span><input class="inp" id="bRef" placeholder="e.g. FT26100612345"></label>
-      <button class="btn dk" style="margin-top:12px" onclick="sendBank('${o.id}','${esc(phone)}')">I have sent the money</button><div class="err" id="bErr"></div>
-      <p class="note">We confirm bank payments within 2 working hours. GENI starts buying once confirmed.</p></div>`;
-  } else if (o.status === 'awaiting_payment') {
-    head = `<div class="card sec"><h3>${o.events.some((e) => e.text.startsWith('Price quote ready')) ? 'Your price is ready' : 'Complete your payment'}</h3>
-      <p style="margin:0 0 12px;color:#86868B;font-size:13px">${P.get('failed') ? 'The last payment did not go through. ' : ''}Total <b style="color:#1D1D1F">${tk(o.amount_due - o.amount_paid)}</b> — product, WOOW fee and shipping to Dhaka.</p>
-      <div class="ops c4" id="payM">
-        <button class="op on" data-m="bkash"><span class="ck"></span><span class="lg" style="background:#E2136E">bKash</span><b>bKash</b></button>
-        <button class="op" data-m="nagad"><span class="ck"></span><span class="lg" style="background:#EC1C24">Nagad</span><b>Nagad</b></button>
-        <button class="op" data-m="card"><span class="ck"></span><span class="lg" style="background:#424245">💳</span><b>Card</b></button>
-        <button class="op" data-m="bank"><span class="ck"></span><span class="lg" style="background:#1D1D1F">🏦</span><b>Bank</b></button>
-      </div>
-      <button class="btn dk" style="margin-top:12px" onclick="payNow('${o.id}','${esc(phone)}')">Pay ${tk(o.amount_due - o.amount_paid)}</button><div class="err" id="pnErr"></div></div>`;
-  } else if (o.status === 'quote_requested') {
-    head = `<div class="card sec" style="text-align:center;padding:26px"><div style="font-size:40px">🔎</div><h1 style="font-size:22px;margin-top:8px">We're checking the price</h1>
-      <p class="lead" style="margin:6px 0 0">Order ${o.id}. Our team will send your full price in Taka, usually within a few hours. Come back to this page to pay.</p></div>`;
-  }
-  const hero = `<div class="card sec" style="text-align:center;padding:26px">
-    <div class="okc"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#FFD400" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
-    <h1 style="margin-top:14px;font-size:24px">${o.status === 'bank_review' ? 'Transfer submitted' : paidish ? (P.get('paid') ? 'Payment received' : o.statusText) : 'Order ' + o.id}</h1>
-    <p class="lead" style="margin:4px 0 0">Order ${o.id} · ${tk(o.amount_paid)} paid of ${tk(o.amount_due)}${o.plan === 'split' ? ' · shipping ' + tk(o.totals.shipping) + ' due on arrival' : ''}</p>
-    ${o.status === 'bank_review' ? '<p class="note">We are checking your transfer (usually within 2 working hours). Check this page for updates.</p>' : ''}</div>`;
-  const tl = `<div class="card sec"><h3>Journey <small>${o.delivery ? '≈ ' + o.delivery.leadDays + ' days lead time' : ''}</small></h3><ul class="tl">` + steps.map((s, i) => {
-      const cls = i <= ix ? 'd' : i === ix + 1 && o.status !== 'delivered' ? 'c' : '';
-      return `<li class="${cls}"><i>${cls === 'd' ? '✓' : i + 1}</i><div><b>${s[1]}</b><small>${dates[s[0]] || ''}</small></div></li>`;
-    }).join('') + '</ul>' + (o.merchantOrders.length ? `<p class="note" style="text-align:left">Store order numbers: ${o.merchantOrders.map(esc).join(', ')}</p>` : '') + '</div>';
-  const items = `<div class="card sec"><h3>Items</h3>${o.items.map((i) => `<div class="ci"><img src="${esc(i.image || '')}" alt=""><div><b>${esc(i.title)}</b><small>${esc(i.store)} · Qty ${i.qty}${i.buy === 'bought' ? '<em class="bb ok">✓ Bought</em>' : i.buy === 'cant' ? '<em class="bb no">Couldn\'t buy</em>' : ''}</small></div><b>${i.lineBdt ? tk(i.lineBdt) : '—'}</b></div>`).join('')}</div>`;
-  // GENI updates: latest news first (purchase team marks items bought / not available)
-  const geni = o.events.filter((e) => /^GENI|^Payment|^Price quote ready|^Bank transfer/.test(e.text)).reverse().slice(0, 6);
-  const up = geni.length ? `<div class="card sec"><h3>GENI updates</h3>${geni.map((e) => `<div class="gu"><span class="orb"></span><div>${esc(e.text)}<small>${new Date(e.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</small></div></div>`).join('')}</div>` : '';
-  $('out').innerHTML = o.status === 'quote_requested' ? head + items : head + hero + up + tl + items;
-  const pm = $('payM'); if (pm) pm.addEventListener('click', (e) => { const b = e.target.closest('.op'); if (!b) return; pm.querySelectorAll('.op').forEach((x) => x.classList.toggle('on', x === b)); });
+const paidish = !['awaiting_payment', 'bank_review', 'cancelled'].includes(o.status);
+const steps = [['paid', 'Paid in Taka'], ['purchasing', 'GENI is buying from the stores'], ['purchased', 'Bought — on the way to our US warehouse'], ['at_warehouse', 'At WOOW US warehouse'], ['in_flight', 'On the WOOW flight'], ['in_dhaka', 'In Dhaka, clearing customs'], ['delivered', 'Delivered to you']];
+const ix = steps.findIndex((s) => s[0] === o.status);
+const dates = o.delivery ? { at_warehouse: 'by ' + fd(o.delivery.warehouse), in_flight: fd(o.delivery.flight) + ' · ' + o.delivery.flightNo + (o.delivery.moved ? ' · new date' + (o.delivery.flightNote ? ' (' + o.delivery.flightNote + ')' : '') : ''), in_dhaka: fd(o.delivery.land), delivered: fd(o.delivery.deliverFrom) + ' – ' + fd(o.delivery.deliverTo) } : {};
+let head = '';
+if (o.status === 'awaiting_payment' && o.method === 'bank') {
+head = `<div class="card sec"><h3>Send the bank transfer</h3>
+<p style="margin:0;color:#86868B;font-size:13px">Send exactly <b style="color:#1D1D1F">${tk(o.amount_due)}</b> and write your order number as the reference.</p>
+<div class="bank"><div><span>Account name</span><b>${esc(CFG.bank?.name)}</b></div><div><span>Account no.</span><b>${esc(CFG.bank?.number)}</b></div><div><span>Bank · branch</span><b>${esc(CFG.bank?.branch)}</b></div><div><span>Reference</span><b>${o.id}</b></div></div>
+<label class="fg" style="display:block;margin-top:12px"><span style="font-size:12px;font-weight:700;color:#86868B">Transaction ID / reference after sending</span><input class="inp" id="bRef" placeholder="e.g. FT26100612345"></label>
+<button class="btn dk" style="margin-top:12px" onclick="sendBank('${o.id}','${esc(phone)}')">I have sent the money</button><div class="err" id="bErr"></div>
+<p class="note">We confirm bank payments within 2 working hours. GENI starts buying once confirmed.</p></div>`;
+} else if (o.status === 'awaiting_payment') {
+head = `<div class="card sec"><h3>${o.events.some((e) => e.text.startsWith('Price quote ready')) ? 'Your price is ready' : 'Complete your payment'}</h3>
+<p style="margin:0 0 12px;color:#86868B;font-size:13px">${P.get('failed') ? 'The last payment did not go through. ' : ''}Total <b style="color:#1D1D1F">${tk(o.amount_due - o.amount_paid)}</b> — product, WOOW fee and shipping to Dhaka.</p>
+<div class="ops c4" id="payM">
+<button class="op on" data-m="bkash"><span class="ck"></span><span class="lg" style="background:#E2136E">bKash</span><b>bKash</b></button>
+<button class="op" data-m="nagad"><span class="ck"></span><span class="lg" style="background:#EC1C24">Nagad</span><b>Nagad</b></button>
+<button class="op" data-m="card"><span class="ck"></span><span class="lg" style="background:#424245">💳</span><b>Card</b></button>
+<button class="op" data-m="bank"><span class="ck"></span><span class="lg" style="background:#1D1D1F">🏦</span><b>Bank</b></button>
+</div>
+<button class="btn dk" style="margin-top:12px" onclick="payNow('${o.id}','${esc(phone)}')">Pay ${tk(o.amount_due - o.amount_paid)}</button><div class="err" id="pnErr"></div></div>`;
+} else if (o.status === 'quote_requested') {
+head = `<div class="card sec" style="text-align:center;padding:26px"><div style="font-size:40px">🔎</div><h1 style="font-size:22px;margin-top:8px">We're checking the price</h1>
+<p class="lead" style="margin:6px 0 0">Order ${o.id}. Our team will send your full price in Taka, usually within a few hours. Come back to this page to pay.</p></div>`;
+}
+const hero = `<div class="card sec" style="text-align:center;padding:26px">
+<div class="okc"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#FFD400" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+<h1 style="margin-top:14px;font-size:24px">${o.status === 'bank_review' ? 'Transfer submitted' : paidish ? (P.get('paid') ? 'Payment received' : o.statusText) : 'Order ' + o.id}</h1>
+<p class="lead" style="margin:4px 0 0">Order ${o.id} · ${tk(o.amount_paid)} paid of ${tk(o.amount_due)}${o.plan === 'split' ? ' · shipping ' + tk(o.totals.shipping) + ' due on arrival' : ''}</p>
+${o.status === 'bank_review' ? '<p class="note">We are checking your transfer (usually within 2 working hours). Check this page for updates.</p>' : ''}</div>`;
+const tl = `<div class="card sec"><h3>Journey <small>${o.delivery ? '≈ ' + o.delivery.leadDays + ' days lead time' : ''}</small></h3><ul class="tl">` + steps.map((s, i) => {
+const cls = i <= ix ? 'd' : i === ix + 1 && o.status !== 'delivered' ? 'c' : '';
+return `<li class="${cls}"><i>${cls === 'd' ? '✓' : i + 1}</i><div><b>${s[1]}</b><small>${dates[s[0]] || ''}</small></div></li>`;
+}).join('') + '</ul>' + (o.merchantOrders.length ? `<p class="note" style="text-align:left">Store order numbers: ${o.merchantOrders.map(esc).join(', ')}</p>` : '') + '</div>';
+const items = `<div class="card sec"><h3>Items</h3>${o.items.map((i) => `<div class="ci"><img src="${esc(i.image || '')}" alt=""><div><b>${esc(i.title)}</b><small>${esc(i.store)} · Qty ${i.qty}${i.buy === 'bought' ? '<em class="bb ok">✓ Bought</em>' : i.buy === 'cant' ? '<em class="bb no">Couldn\'t buy</em>' : ''}</small></div><b>${i.lineBdt ? tk(i.lineBdt) : '—'}</b></div>`).join('')}</div>`;
+// GENI updates: latest news first (purchase team marks items bought / not available)
+const geni = o.events.filter((e) => /^GENI|^Payment|^Price quote ready|^Bank transfer/.test(e.text)).reverse().slice(0, 6);
+const up = geni.length ? `<div class="card sec"><h3>GENI updates</h3>${geni.map((e) => `<div class="gu"><span class="orb"></span><div>${esc(e.text)}<small>${new Date(e.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</small></div></div>`).join('')}</div>` : '';
+const P = o.pickup;
+const dl = P ? `<div class="card sec"><h3>🏢 Free pickup${o.status === 'in_dhaka' || o.status === 'delivered' ? '' : ' when it arrives'}</h3><div class="pk"><b>${esc(P.name)}</b><span>📍 ${esc(P.address)}</span><span>☎️ <a href="tel:+8809649223322">${esc(P.hotline)}</a></span><span>🕙 ${esc(P.hours)} · ${esc(P.closed)}</span><a href="${P.map}" target="_blank" rel="noopener">Open in Google Maps ↗</a><em>Bring your order number ${o.id}. We'll message you when it is ready.</em></div></div>`
+: o.customer.address ? `<div class="card sec"><h3>🏠 Home delivery</h3><p style="margin:0;font-size:13px;color:#424245">${esc(o.customer.name)} · ${esc(o.customer.address)}, ${esc(o.customer.city)}</p></div>` : '';
+$('out').innerHTML = o.status === 'quote_requested' ? head + items : head + hero + up + dl + tl + items;
+const pm = $('payM'); if (pm) pm.addEventListener('click', (e) => { const b = e.target.closest('.op'); if (!b) return; pm.querySelectorAll('.op').forEach((x) => x.classList.toggle('on', x === b)); });
 }
 async function payNow(id, phone) {
-  const m = document.querySelector('#payM .op.on').dataset.m;
-  const r = await fetch(`/api/orders/${id}/pay`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, method: m }) });
-  const d = await r.json(); if (!r.ok) { $('pnErr').textContent = d.error; $('pnErr').style.display = 'block'; return; }
-  if (d.next.type === 'redirect') location.href = d.next.url; else find(id, phone);
+const m = document.querySelector('#payM .op.on').dataset.m;
+const r = await fetch(`/api/orders/${id}/pay`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, method: m }) });
+const d = await r.json(); if (!r.ok) { $('pnErr').textContent = d.error; $('pnErr').style.display = 'block'; return; }
+if (d.next.type === 'redirect') location.href = d.next.url; else find(id, phone);
 }
 async function sendBank(id, phone) {
-  const r = await fetch(`/api/orders/${id}/bank`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, reference: $('bRef').value }) });
-  const d = await r.json(); if (!r.ok) { $('bErr').textContent = d.error; $('bErr').style.display = 'block'; return; }
-  find(id, phone);
+const r = await fetch(`/api/orders/${id}/bank`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, reference: $('bRef').value }) });
+const d = await r.json(); if (!r.ok) { $('bErr').textContent = d.error; $('bErr').style.display = 'block'; return; }
+find(id, phone);
 }
 // ── your orders (this phone) ──
 function saveMine(id, phone) {
-  try { const L = JSON.parse(localStorage.getItem('woowOrders') || '[]').filter((x) => x.id !== id); L.unshift({ id, phone }); localStorage.setItem('woowOrders', JSON.stringify(L.slice(0, 30))); } catch {}
+try { const L = JSON.parse(localStorage.getItem('woowOrders') || '[]').filter((x) => x.id !== id); L.unshift({ id, phone }); localStorage.setItem('woowOrders', JSON.stringify(L.slice(0, 30))); } catch {}
 }
 const DOT = { quote_requested: '#AF52DE', awaiting_payment: '#C7C7CC', bank_review: '#FF9500', paid: '#34C759', purchasing: '#FFD400', purchased: '#007AFF', at_warehouse: '#5856D6', in_flight: '#5AC8FA', in_dhaka: '#AF52DE', delivered: '#1D1D1F', cancelled: '#8E8E93', problem: '#FF3B30' };
 async function loadHist(id, phone, current) {
-  try {
-    const r = await fetch(`/api/my-orders?id=${encodeURIComponent(id)}&phone=${encodeURIComponent(phone)}`); if (!r.ok) return;
-    const d = await r.json(), L = d.orders.filter((o) => o.id !== current);
-    if (!L.length) { $('hist').innerHTML = ''; return; }
-    $('hist').innerHTML = `<div class="card sec hist"><h3>${current ? 'Your other orders' : 'Your orders'} <small>${L.length}</small></h3>` + L.map((o) => `
-      <button class="ho" data-id="${o.id}"><img src="${esc(o.image || '')}" alt="" onerror="this.style.visibility='hidden'"><span class="hm"><b>${esc(o.title || o.id)}</b><small>${o.id} · ${new Date(o.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} · ${esc(o.store)}${o.more ? ' +' + o.more + ' more' : ''}</small></span>
-      <span class="hs"><span><i style="background:${DOT[o.status] || '#C7C7CC'}"></i>${esc(o.statusText)}</span><small>${o.amount_due ? tk(o.amount_due) : ''}</small></span><span class="ha">›</span></button>`).join('') + '</div>';
-    $('hist').querySelectorAll('.ho').forEach((b) => b.onclick = () => { history.replaceState(null, '', `/order?id=${b.dataset.id}&phone=${d.phone}`); find(b.dataset.id, d.phone); window.scrollTo({ top: 0, behavior: 'smooth' }); });
-  } catch {}
+try {
+const r = await fetch(`/api/my-orders?id=${encodeURIComponent(id)}&phone=${encodeURIComponent(phone)}`); if (!r.ok) return;
+const d = await r.json(), L = d.orders.filter((o) => o.id !== current);
+if (!L.length) { $('hist').innerHTML = ''; return; }
+$('hist').innerHTML = `<div class="card sec hist"><h3>${current ? 'Your other orders' : 'Your orders'} <small>${L.length}</small></h3>` + L.map((o) => `
+<button class="ho" data-id="${o.id}"><img src="${esc(o.image || '')}" alt="" onerror="this.style.visibility='hidden'"><span class="hm"><b>${esc(o.title || o.id)}</b><small>${o.id} · ${new Date(o.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} · ${esc(o.store)}${o.more ? ' +' + o.more + ' more' : ''}</small></span>
+<span class="hs"><span><i style="background:${DOT[o.status] || '#C7C7CC'}"></i>${esc(o.statusText)}</span><small>${o.amount_due ? tk(o.amount_due) : ''}</small></span><span class="ha">›</span></button>`).join('') + '</div>';
+$('hist').querySelectorAll('.ho').forEach((b) => b.onclick = () => { history.replaceState(null, '', `/order?id=${b.dataset.id}&phone=${d.phone}`); find(b.dataset.id, d.phone); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+} catch {}
 }
 (async () => {
-  CFG = await (await fetch('/api/config')).json();
-  let mine = []; try { mine = JSON.parse(localStorage.getItem('woowOrders') || '[]'); } catch {}
-  if (!(P.get('id') && P.get('phone')) && mine.length) { $('fId').value = mine[0].id; $('fPh').value = mine[0].phone; loadHist(mine[0].id, mine[0].phone, null); }
-  if (P.get('id') && P.get('phone')) { $('fId').value = P.get('id'); $('fPh').value = P.get('phone'); find(P.get('id'), P.get('phone')); }
+CFG = await (await fetch('/api/config')).json();
+let mine = []; try { mine = JSON.parse(localStorage.getItem('woowOrders') || '[]'); } catch {}
+if (!(P.get('id') && P.get('phone')) && mine.length) { $('fId').value = mine[0].id; $('fPh').value = mine[0].phone; loadHist(mine[0].id, mine[0].phone, null); }
+if (P.get('id') && P.get('phone')) { $('fId').value = P.get('id'); $('fPh').value = P.get('phone'); find(P.get('id'), P.get('phone')); }
 })();
 </script>
 </body>

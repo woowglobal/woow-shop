@@ -94,6 +94,14 @@ Admin panel: `https://...workers.dev/admin` → ইউজার `admin`, পা�
 - **WOOW main admin থেকে auto update** — Cloudflare এ Secret **FLIGHTS_API_KEY** যোগ করুন। তারপর main admin থেকে `POST /api/flights` (header `x-woow-key: <key>`, body `{"flights":[{"date":"2026-10-22","no":"EK-585","note":"Airline change"},{"date":"2026-10-20","cancelled":true}]}`)। `GET /api/flights` এ সামনের flight তালিকা পাওয়া যায়।
 - **Zinc cost control** — দৈনিক Zinc বাজেট ($3 default)। বাজেট শেষ হলে সার্চ আগের সেভ করা প্রোডাক্ট থেকে দেখাবে, নতুন খরচ হবে না।
 
+### নিরাপত্তা, Sign in, ঠিকানা, Pickup
+- **Sign in বাধ্যতামূলক** — দেখা/সার্চ সবাই পারে, কিন্তু cart, price request আর payment এর আগে customer কে mobile + password দিয়ে account খুলতে / sign in করতে হবে।
+- **ঠিকানা** — checkout এ আগের সেভ করা ঠিকানা (Default আগে), নতুন ঠিকানা (📍 Use my current location দিয়ে verify, অথবা হাতে লেখা)। Google Maps দিয়ে verify চাইলে Cloudflare এ Secret **GOOGLE_MAPS_KEY** দিন (Google Cloud → Places API, শুধু আপনার domain এ সীমিত)।
+- **ফ্রি Pickup** — WOOW Bangladesh Office, House #254, Road #03, Baridhara DOHS, Dhaka · ☎️ +88 09649-223322 · সকাল ১০টা – সন্ধ্যা ৬টা · শুক্রবার ও সরকারি ছুটিতে বন্ধ। Home delivery চার্জ Settings এ (এখন ৳0)।
+- **Bot / খরচ নিয়ন্ত্রণ** — Settings → 🛡️ Bot & cost guard। ৩০ মিনিটে বেশি সার্চ/ভিউ বা বেশি paid lookup হলে সেই visitor আর Zinc খরচ করাতে পারবে না (শুধু সেভ করা প্রোডাক্ট দেখবে)। Dashboard → Security তে তালিকা, চাইলে Unblock।
+- **লুকানো** — customer এর browser এ কোথাও supplier (Zinc) এর নাম নেই, কোড minify করা, error এ সাধারণ বার্তা।
+- **আপনার account সুরক্ষা (নিজে করুন)** — Cloudflare, GitHub, Zinc, Gmail এ 2-Step verification চালু করুন; ADMIN_PASSWORD লম্বা ও আলাদা রাখুন; Zinc wallet এ অল্প টাকা রাখুন; চাইলে Cloudflare Zero Trust → Access দিয়ে /admin শুধু আপনার email এ সীমিত করুন; shop.woowglobal.com custom domain দিন।
+
 ## লাইভে যাওয়ার আগে চেকলিস্ট
 
 - [ ] `ADMIN_PASSWORD` শক্ত

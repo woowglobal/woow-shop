@@ -2,13 +2,15 @@
   "name": "woow-shop",
   "version": "1.0.0",
   "private": true,
-  "description": "WOOW Buy For Me — shop US stores and pay in Taka. Runs on Cloudflare Workers + D1. Orders via Zinc.",
+  "description": "WOOW Buy For Me \u2014 shop US stores and pay in Taka. Runs on Cloudflare Workers + D1. Orders via Zinc.",
   "scripts": {
     "dev": "wrangler dev",
     "db:local": "wrangler d1 execute woow-shop-db --local --file=schema.sql",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "build": "node scripts/build.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.148.0"
-  }
+  },
+  "type": "module"
 }

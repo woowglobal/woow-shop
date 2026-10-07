@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>WOOW · Shop US stores in Taka</title>
+<meta name="description" content="Shop Amazon, Walmart, Target and more. Pay with bKash, Nagad or bank. WOOW buys it and flies it to Bangladesh.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Poppins:wght@600;700&display=swap">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="demo" id="demoBar" hidden></div>
+<header class="hdr">
+  <a class="logo" href="/" aria-label="WOOW home"><svg class="lg-s" viewBox="0 0 53.8 32" height="32" aria-hidden="true"><circle cx="36.83" cy="16" r="16" fill="#FFD400"/><path d="M49.30 15.56A12.48 12.48 0 0 0 45.96 7.49" stroke="#2E2E31" stroke-width="1.28" stroke-linecap="round" fill="none"/><circle cx="16" cy="16" r="16.80" fill="#2E2E31"/><circle cx="16" cy="16" r="16" fill="#FFD400"/><path d="M15.13 3.55A12.48 12.48 0 0 0 3.55 15.13" stroke="#2E2E31" stroke-width="1.28" stroke-linecap="round" fill="none"/><circle cx="18.34" cy="16" r="2.46" fill="#2E2E31"/><circle cx="26.45" cy="16" r="2.46" fill="#2E2E31"/><circle cx="34.42" cy="16" r="2.46" fill="#2E2E31"/></svg><span class="lg-t"><b>wOOw</b><small>Borderless Possibilities...</small></span><small class="lg-tag">Buy For Me</small></a>
+  <nav>
+    <a class="hb" href="/order">📦 <span>Track order</span></a>
+    <button class="hb" id="acct" onclick="acct()">👤 <span id="acctN">Sign in</span></button>
+    <button class="hb dk" onclick="go('cart')">🛒 <span>Cart</span> <em id="cc">0</em></button>
+  </nav>
+</header>
+
+<main>
+<!-- BROWSE -->
+<section class="v on" id="v-browse">
+  <div class="bfm">
+    <div class="svc">
+      <a class="sv on" href="/"><span class="si">🛍️</span><b>Buy For Me</b><small>We buy it for you</small></a>
+      <a class="sv" href="https://woowglobal.com" target="_blank" rel="noopener"><span class="si">📦</span><b>Ship For Me</b><small>Free US address</small></a>
+      <a class="sv" href="https://woowglobal.com" target="_blank" rel="noopener"><span class="si">🚚</span><b>Send Parcel</b><small>Compare &amp; ship</small></a>
+      <a class="sv" href="/order"><span class="si">🌍</span><b>Track</b><small>Global tracking</small></a>
+    </div>
+    <div class="tabs" id="mode"><button data-m="link">🔗 Paste a link</button><button class="on" data-m="search">🏬 Browse stores</button></div>
+    <div class="sq" id="searchBox"><label>🔍<input id="q" placeholder="What are you looking for? e.g. Nike shoes" autocomplete="off"></label><button onclick="doSearch()">Search</button></div>
+    <div class="sq" id="linkBox" hidden><label>🔗<input id="lnk" placeholder="Paste a product link from Amazon, Walmart, Target…" autocomplete="off"></label><button onclick="doLink()">Get price</button></div>
+    <div class="cats" id="cats"></div>
+    <div class="tiles" id="tiles"></div>
+    <p class="hint" id="hint">Tap a store to see its products. For other stores, copy the product link and paste it in “Paste a link”.</p>
+    <div class="rate2"><i></i>Today's rate <b id="rateTx"></b> · prices shown delivered to Dhaka</div>
+  </div>
+  <div id="fy"></div>
+  <div id="feed"></div>
+  <div class="rv" id="rvB" hidden></div>
+  <div id="feed2"></div>
+  <div id="feed3"></div>
+  <div class="rh"><b id="rt">Popular right now</b><small id="rn"></small></div>
+  <div class="grid" id="grid"></div>
+</section>
+
+<!-- STORE PAGE -->
+<section class="v" id="v-store">
+  <div class="sp-band" id="spBand">
+    <div class="sp-in">
+      <button class="sp-back" onclick="go('browse')">← All stores</button>
+      <div class="sp-name"><i id="spLogo"></i><div><b id="spName"></b><small>Shopping through WOOW · prices delivered to Dhaka in ৳</small></div></div>
+      <div class="sp-search"><input id="spQ" autocomplete="off"><button id="spGo" onclick="storeSearch()" aria-label="Search">🔍</button></div>
+    </div>
+    <div class="sp-cats" id="spCats"></div>
+  </div>
+  <div class="sp-body" id="spBody"></div>
+</section>
+
+<!-- PRODUCT -->
+<section class="v" id="v-item">
+  <button class="bk" onclick="window._from==='store'&&curStore?openStore(curStore.id):go('browse')">← Back</button>
+  <div class="pd">
+    <div class="pdl">
+    <div class="pdi"><img id="dImg" alt=""></div>
+    <div class="pdt">
+      <span class="src" id="dSrc"></span>
+      <h2 id="dNm"></h2>
+      <div class="st" id="dSt"></div>
+      <span class="lbl">Size / colour / option (optional)</span>
+      <input class="inp" id="dOpt" maxlength="60" placeholder="e.g. Black, US 10, 32x30">
+      <span class="lbl">Quantity</span>
+      <div class="qty"><button onclick="q(-1)" aria-label="Less">−</button><b id="dQ">1</b><button onclick="q(1)" aria-label="More">+</button></div>
+      <a class="same" id="dSame" target="_blank" rel="noopener"></a>
+    </div>
+    <div class="rv" id="rvD" hidden></div>
+    </div>
+    <aside class="card buy">
+      <div class="tt">Price delivered to Dhaka</div>
+      <div class="big" id="dBd">—</div><div class="ub" id="dUs"></div>
+      <div class="brk" id="dBrk"></div><div id="dExtra"></div>
+      <button class="btn" onclick="addCart(true)">Add to cart</button>
+      <button class="btn dk" onclick="addCart(false);go('pay')">Buy now · pay in ৳</button>
+      <div id="dPlan"></div>
+      <div class="gn"><span class="orb"></span><span><b>GENI checks price and stock</b> before buying. If the store price goes up, we ask you first.</span></div>
+    </aside>
+  </div>
+</section>
+
+<!-- QUOTE (stores without instant price, e.g. Costco) -->
+<section class="v" id="v-quote">
+  <button class="bk" onclick="go('browse')">← Back</button>
+  <div class="two">
+    <div>
+      <div class="card sec">
+        <h3>Get a price from WOOW <small id="qStore"></small></h3>
+        <p class="lead" id="qLead" style="margin:-4px 0 14px">Our team checks this product and sends you the full price in Taka, usually within a few hours. You pay only after you accept.</p>
+        <div class="fg">
+          <label class="full">Product link<input class="inp" id="qUrl" readonly></label>
+          <label class="full">Product name<input class="inp" id="qTitle" placeholder="e.g. Kirkland Signature Vitamin D3, 600 softgels"></label>
+          <label>Price you see in USD (optional)<input class="inp" id="qUsd" inputmode="decimal" placeholder="e.g. 24.99"></label>
+          <label>Quantity<input class="inp" id="qQty" type="number" min="1" max="99" value="1"></label>
+          <label class="full">Size / colour / note (optional)<input class="inp" id="qOpt" maxlength="200"></label>
+        </div>
+      </div>
+      <div class="card sec" id="qDetails" hidden><h3>Your details</h3>
+        <div class="fg">
+          <label>Full name<input class="inp" id="qName" autocomplete="name"></label>
+          <label>Mobile<input class="inp" id="qPhone" inputmode="tel" placeholder="01XXXXXXXXX" autocomplete="tel"></label>
+          <label>Email (optional)<input class="inp" id="qEmail" type="email"></label>
+          <label>City<input class="inp" id="qCity" value="Dhaka"></label>
+          <label class="full">Full address<textarea class="inp" id="qAddr" placeholder="House, road, area"></textarea></label>
+        </div>
+      </div>
+    </div>
+    <aside class="card buy">
+      <div class="tt">How it works</div>
+      <ul class="tl" style="margin-top:10px">
+        <li><i>1</i><div><b>Send this request</b><small>Free, no payment now</small></div></li>
+        <li><i>2</i><div><b>WOOW sends your price</b><small>Product, fees, shipping to Dhaka</small></div></li>
+        <li><i>3</i><div><b>Pay with bKash, Nagad or bank</b><small>On your order page</small></div></li>
+        <li><i>4</i><div><b>We buy it and fly it to you</b><small id="qMember"></small></div></li>
+      </ul>
+      <button class="btn dk" id="qBtn" onclick="sendQuote()">Request price</button>
+      <div class="err" id="qErr"></div>
+    </aside>
+  </div>
+</section>
+
+<!-- CART -->
+<section class="v" id="v-cart">
+  <button class="bk" onclick="go('browse')">← Continue shopping</button>
+  <h1 style="margin-bottom:14px">Your cart</h1>
+  <div id="route"></div>
+  <div class="two">
+    <div id="cGroups"></div>
+    <aside class="card buy sum" id="cSum"></aside>
+  </div>
+</section>
+
+<!-- CHECKOUT -->
+<section class="v" id="v-pay">
+  <button class="bk" onclick="go('cart')">← Back to cart</button>
+  <h1 style="margin-bottom:14px">Checkout</h1>
+  <div class="two">
+    <div>
+      <div class="card sec"><h3>Delivery in Bangladesh</h3>
+        <div class="ops c2" id="dlv">
+          <button class="op on" data-d="home"><span class="ck"></span><span class="lg" style="background:#1D1D1F">🏠</span><b>Home delivery</b><small>To your address</small><span class="amt" id="dHomeFee">Free</span></button>
+          <button class="op" data-d="pickup"><span class="ck"></span><span class="lg" style="background:#FFD400;color:#1D1D1F">🏢</span><b>Pick up from WOOW</b><small>Baridhara DOHS, Dhaka</small><span class="amt">Free</span></button>
+        </div>
+        <div id="addrBox"></div>
+        <div id="pickBox" hidden></div>
+      </div>
+      <div class="card sec"><h3>When to pay</h3>
+        <div class="ops c2" id="plan">
+          <button class="op" data-v="full"><span class="ck"></span><b>Pay all now</b><small>Product, fees and estimated shipping. Difference from the real weight settled on arrival.</small><span class="amt" id="pFull"></span></button>
+          <button class="op on" data-v="split" style="position:relative"><span class="ck"></span><span class="rec">Recommended</span><b>Pay product now</b><small>Second invoice for shipping by real weight when your parcel arrives in Bangladesh.</small><span class="amt" id="pSplit"></span></button>
+        </div>
+      </div>
+      <div class="card sec"><h3>Pay with <small>All in Taka</small></h3>
+        <div class="ops c4" id="pm">
+          <button class="op on" data-m="bkash"><span class="ck"></span><span class="lg" style="background:#E2136E">bKash</span><b>bKash</b><small>Pay from your bKash</small></button>
+          <button class="op" data-m="nagad"><span class="ck"></span><span class="lg" style="background:#EC1C24">Nagad</span><b>Nagad</b><small>Pay from your Nagad</small></button>
+          <button class="op" data-m="card"><span class="ck"></span><span class="lg" style="background:#424245">💳</span><b>Card</b><small>Visa, Mastercard, Amex</small></button>
+          <button class="op" data-m="bank"><span class="ck"></span><span class="lg" style="background:#1D1D1F">🏦</span><b>Bank transfer</b><small>BEFTN, NPSB, deposit</small></button>
+        </div>
+      </div>
+    </div>
+    <aside class="card buy sum" id="pSum"></aside>
+  </div>
+</section>
+ <footer class="ft">
+  <div><b>🌍 WOOW GLOBAL · Contact us</b></div>
+  <div class="ftc"><div><b>🇧🇩 Bangladesh Office</b><span>📍 House #254, Road #03, Baridhara DOHS, Dhaka</span><span>☎️ Hotline: <a href="tel:+8809649223322">+88 09649-223322</a></span><span>🕙 10 AM – 6 PM · Closed Fridays &amp; public holidays</span><span>🏢 Free pickup of your WOOW orders here</span></div></div>
+ </footer>
+</main>
+<aside class="cmp" id="cmp" hidden aria-label="Price comparison">
+  <div class="cmp-h"><b>⚖️ Compare prices</b><button id="cmpMin" aria-label="Minimize">—</button></div>
+  <p class="cmp-s" id="cmpS">Total to Dhaka · incl. US delivery &amp; tax <button class="lnk" onclick="showWhy()">Why?</button></p>
+  <div id="cmpL"></div>
+</aside>
+<button class="cmp-tab" id="cmpTab" hidden>⚖️ Compare <em id="cmpN"></em></button>
+<div class="mdl" id="brkM" hidden onclick="if(event.target===this)this.hidden=true"><div class="mdl-b">
+  <div class="mh"><h3>Price details</h3><button onclick="document.getElementById('brkM').hidden=true" aria-label="Close">✕</button></div>
+  <details open><summary>💡 Pay product now, shipping later</summary><p>Pay for the product and WOOW service today. When your parcel arrives in Bangladesh, we send a second invoice for shipping by its real weight.</p></details>
+  <details><summary>⚖️ Why is the weight an estimate?</summary><p>The store's seller declares the weight. The real parcel is weighed at our US warehouse, and that weight is final.</p></details>
+  <details><summary>🛃 Customs duty &amp; brokerage charge</summary><p>Some products may have customs duty or a brokerage charge in Dhaka. We always tell you before you pay it.</p><ul id="brkList"></ul></details>
+  <p style="margin-top:14px">Questions? Our customer care or GENI will help you.</p>
+  <div class="chat"><a class="wa" id="brkWa" target="_blank" rel="noopener">💬 Chat with us</a><button class="gn2" onclick="document.getElementById('brkM').hidden=true">Got it</button></div>
+</div></div>
+<div class="mdl" id="whyM" hidden onclick="if(event.target===this)this.hidden=true"><div class="mdl-b">
+  <div class="mh"><h3>How WOOW gets it to you</h3><button onclick="document.getElementById('whyM').hidden=true" aria-label="Close">✕</button></div>
+  <div class="why" id="whyL"></div>
+  <div class="chat"><a class="wa" id="whyWa" target="_blank" rel="noopener">💬 Ask us</a><button class="gn2" onclick="document.getElementById('whyM').hidden=true">Got it</button></div>
+</div></div>
+<div class="mbar" id="mbar" hidden></div>
+<div class="mdl" id="authM" hidden onclick="if(event.target===this)closeAuth()"><div class="mdl-b auth">
+  <div class="mh"><h3 id="aT">Sign in</h3><button onclick="closeAuth()" aria-label="Close">✕</button></div>
+  <p class="aw" id="aWhy">Sign in to add to cart and pay in Taka.</p>
+  <div class="seg2" id="aTabs"><button class="on" data-a="in">Sign in</button><button data-a="up">Create account</button></div>
+  <div class="fg1">
+    <label id="aNameL" hidden>Full name<input class="inp" id="aName" autocomplete="name"></label>
+    <label>Mobile number<input class="inp" id="aPhone" inputmode="tel" placeholder="01XXXXXXXXX" autocomplete="tel"></label>
+    <label id="aEmailL" hidden>Email (optional)<input class="inp" id="aEmail" type="email" autocomplete="email"></label>
+    <label>Password<input class="inp" id="aPass" type="password" autocomplete="current-password" placeholder="At least 6 characters"></label>
+  </div>
+  <div class="err" id="aErr"></div>
+  <button class="btn dk" id="aBtn" onclick="doAuth()">Sign in</button>
+  <p class="note">Forgot password? Call <a href="tel:+8809649223322">+88 09649-223322</a> or <a id="aWa" target="_blank" rel="noopener">WhatsApp us</a>.</p>
+</div></div>
+<div class="mdl" id="meM" hidden onclick="if(event.target===this)this.hidden=true"><div class="mdl-b">
+  <div class="mh"><h3 id="meN"></h3><button onclick="document.getElementById('meM').hidden=true" aria-label="Close">✕</button></div>
+  <p class="aw" id="meP"></p>
+  <div class="mel"><a href="/order">📦 My orders &amp; tracking</a><button onclick="document.getElementById('meM').hidden=true;go('cart')">🛒 My cart</button><button onclick="signOut()">↩ Sign out</button></div>
+</div></div>
+<div class="toast" id="toast"></div>
+<script src="/app.js"></script>
+</body>
+</html>

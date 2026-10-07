@@ -10,7 +10,7 @@
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
-    "run_worker_first": ["/api/*", "/pay/*", "/webhooks/*", "/admin", "/admin.html"]
+    "run_worker_first": ["/api/*", "/pay/*", "/webhooks/*", "/admin", "/admin.html", "/admin.js"]
   },
   "d1_databases": [
     { "binding": "DB", "database_name": "woow-shop-db", "database_id": "e8eadacb-10b3-476f-94dc-d2f144647e78" }

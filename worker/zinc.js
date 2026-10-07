@@ -19,10 +19,10 @@ function endpointOf(path, method) {
   if (path.startsWith('/orders')) return method === 'POST' ? 'order' : 'order_status';
   return path.split(/[/?]/)[1] || 'other';
 }
-export async function logZinc(env, endpoint, { retailer = null, q = null, ok = 1, cost = null } = {}) {
+export async function logZinc(env, endpoint, { retailer = null, q = null, ok = 1, cost = null, gate = null } = {}) {
   try {
-    await env.DB.prepare('INSERT INTO zinc_calls (ts,endpoint,retailer,q,ok,cost_cents) VALUES (?,?,?,?,?,?)')
-      .bind(Date.now(), endpoint, retailer, q ? String(q).slice(0, 120) : null, ok ? 1 : 0, cost ?? (PAID[endpoint] || 0)).run();
+    await env.DB.prepare('INSERT INTO zinc_calls (ts,endpoint,retailer,q,ok,cost_cents,who,ip) VALUES (?,?,?,?,?,?,?,?)')
+      .bind(Date.now(), endpoint, retailer, q ? String(q).slice(0, 120) : null, ok ? 1 : 0, cost ?? (PAID[endpoint] || 0), gate?.who || null, gate?.ip || null).run();
     _spent = null;
   } catch (e) { console.log('zinc log failed', e.message); }
 }
@@ -31,11 +31,15 @@ async function zinc(env, path, opts = {}) {
   const qs = new URLSearchParams(path.split('?')[1] || '');
   const res = await fetch(BASE + path, { ...opts, headers: { Authorization: 'Bearer ' + env.ZINC_API_KEY, 'Content-Type': 'application/json', ...(opts.headers || {}) } });
   const text = await res.text();
-  if (!['wallet', 'usage'].includes(ep)) await logZinc(env, ep, { retailer: qs.getAll('retailer').join(',') || null, q: qs.get('q'), ok: res.ok });
+  if (!['wallet', 'usage'].includes(ep)) await logZinc(env, ep, { retailer: qs.getAll('retailer').join(',') || null, q: qs.get('q'), ok: res.ok, gate: opts.gate });
   let data; try { data = JSON.parse(text); } catch { data = { raw: text }; }
   if (!res.ok) {
     const msg = data?.message || data?.error || data?.raw || res.statusText;
-    throw new Error(`Zinc ${res.status}: ${typeof msg === 'string' ? msg : JSON.stringify(msg)}`);
+    // customers only ever see a plain message; the real reason is kept for the admin and logs
+    const e = new Error('We could not check this with the store right now. Please try again in a minute.');
+    e.detail = `Supplier ${res.status}: ${typeof msg === 'string' ? msg : JSON.stringify(msg)}`; e.public = true;
+    console.log('supplier error', ep, e.detail);
+    throw e;
   }
   return data;
 }
@@ -85,7 +89,7 @@ async function localSearch(env, q, retailer) {
   const r = await env.DB.prepare(sql + ' ORDER BY seen DESC LIMIT 24').bind(...args).all();
   return r.results.map((x) => JSON.parse(x.data)).filter((p) => !p.demo);
 }
-export async function search(env, ctx, q, retailer, { budgetCents = 0, ttlMs = SEARCH_TTL } = {}) {
+export async function search(env, ctx, q, retailer, { budgetCents = 0, ttlMs = SEARCH_TTL, gate = null } = {}) {
   q = (q || '').trim().slice(0, 120);
   if (!env.ZINC_API_KEY) { const L = demoSearch(q, retailer); ctx.waitUntil(remember(env, L)); return L; }
   const k = skey(q || 'best sellers', retailer);
@@ -97,14 +101,14 @@ export async function search(env, ctx, q, retailer, { budgetCents = 0, ttlMs = S
     const row = await env.DB.prepare('SELECT data,ts FROM search_cache WHERE k=?').bind(k).first();
     if (row && Date.now() - row.ts < ttlMs) { const L = JSON.parse(row.data); ctx.waitUntil(Promise.all([put(L), logZinc(env, 'search_saved', { retailer, q, cost: 0 })])); return L; }
   } catch {}
-  if (await overBudget(env, budgetCents)) {
+  if ((await overBudget(env, budgetCents)) || (gate && !(await gate.allow()))) {
     const L = await localSearch(env, q, retailer);
     ctx.waitUntil(logZinc(env, 'search_saved', { retailer, q, cost: 0 }));
     return L;
   }
   const params = new URLSearchParams({ q: q || 'best sellers', limit: '24' });
   if (retailer && retailer !== 'all') params.append('retailer', retailer); else SEARCH_RETAILERS.forEach((r) => params.append('retailer', r));
-  const data = await zinc(env, '/search?' + params.toString());
+  const data = await zinc(env, '/search?' + params.toString(), { gate });
   const L = (data.results || []).filter((r) => r.price > 0).map(normalize);
   ctx.waitUntil(Promise.all([remember(env, L), put(L),
     env.DB.prepare('INSERT OR REPLACE INTO search_cache (k,data,ts) VALUES (?,?,?)').bind(k, JSON.stringify(L), Date.now()).run().catch(() => {})]));
@@ -136,7 +140,7 @@ export function parseUrl(url) {
 
 /** Product by URL (pasted link, or price check at checkout).
  *  live=true → ask Zinc for today's price right now (used when the customer presses Pay). */
-export async function product(env, url, { fresh = false, live = false, liveFreshMs = 0 } = {}) {
+export async function product(env, url, { fresh = false, live = false, liveFreshMs = 0, gate = null } = {}) {
   if (!env.ZINC_API_KEY) { const d = demoCatalog().find((p) => p.url === url) || (await recall(env, url, Infinity)); if (d) await remember(env, [d]); return d || null; }
   // Cost saver: a price checked a few minutes ago is still "live" — no second paid call.
   const known = await recall(env, url, live ? liveFreshMs : fresh ? 10 * 60 * 1000 : 6 * 3600e3);
@@ -150,9 +154,13 @@ export async function product(env, url, { fresh = false, live = false, liveFresh
     if (cached) return { ...cached, priceChecked: 'search' };
     throw new Error('This store link is not supported yet. Our team can buy it for you by hand.');
   }
+  if (gate && !(await gate.allow())) {
+    if (cached) return { ...cached, priceChecked: 'search' };
+    throw Object.assign(new Error('Too many requests from this device. Please try again later or call WOOW: +88 09649-223322.'), { public: true });
+  }
   let d;
   try {
-    d = await zinc(env, `/products/${encodeURIComponent(pu.id)}?retailer=${pu.retailer}&max_age=600`);
+    d = await zinc(env, `/products/${encodeURIComponent(pu.id)}?retailer=${pu.retailer}&max_age=600`, { gate });
     if (d.status && d.status !== 'completed') throw new Error('Could not read this product right now. Try again in a minute.');
   } catch (e) {
     if (cached) { // keep the saved search price if Zinc can't read the product right now
@@ -179,13 +187,14 @@ export async function product(env, url, { fresh = false, live = false, liveFresh
 /** US delivery cost store → WOOW warehouse from Zinc's live offers (shipping_options). Saved 24 h per product.
  *  Returns cents, or null when Zinc has no data (then the store rule in Admin → Settings is used). */
 export const OFFER_RETAILERS = ['amazon', 'walmart', 'bestbuy'];
-export async function shippingCents(env, p) {
+export async function shippingCents(env, p, gate = null) {
   if (!p || !OFFER_RETAILERS.includes(p.retailer)) return null;
   if (Number.isFinite(p.shipCents) && Date.now() - (p.shipAt || 0) < 864e5) return { cents: p.shipCents, thirdParty: !!p.thirdParty };
   if (!env.ZINC_API_KEY) return null;
   const pu = parseUrl(p.url); if (!pu?.id) return null;
+  if (gate && !(await gate.allow())) return null;
   try {
-    const d = await zinc(env, `/products/${encodeURIComponent(pu.id)}/offers?retailer=${pu.retailer}`);
+    const d = await zinc(env, `/products/${encodeURIComponent(pu.id)}/offers?retailer=${pu.retailer}`, { gate });
     const offers = (d.offers || []).filter((o) => o.available !== false && (!o.condition || /new/i.test(o.condition)));
     if (!offers.length) return null;
     // the offer WOOW will actually buy = the one at the price the customer saw
@@ -301,7 +310,7 @@ function bestPerStore(base, list, min = 0.55) {
   }
   return Object.values(best);
 }
-export async function compare(env, ctx, url) {
+export async function compare(env, ctx, url, gate = null) {
   const base = await recall(env, url, Infinity);
   if (!base) return { base: null, offers: [], source: 'none' };
   const cache = caches.default, key = new Request('https://cache.woow/compare?u=' + encodeURIComponent(url));
@@ -314,11 +323,11 @@ export async function compare(env, ctx, url) {
   const missing = COMPARE_RETAILERS.filter((r) => r !== base.retailer && !offers.some((o) => o.retailer === r));
   if (env.ZINC_API_KEY && !missing.length) ctx.waitUntil(logZinc(env, 'compare_saved', { retailer: base.retailer, cost: 0 }));
   // 2) one Zinc search for the stores still missing
-  if (missing.length && env.ZINC_API_KEY) {
+  if (missing.length && env.ZINC_API_KEY && (!gate || (await gate.allow()))) {
     const q = [base.brand, ...toks(base.title).slice(0, 7)].filter(Boolean).join(' ');
     const params = new URLSearchParams({ q, limit: '15' }); missing.forEach((r) => params.append('retailer', r));
     try {
-      const data = await zinc(env, '/search?' + params.toString());
+      const data = await zinc(env, '/search?' + params.toString(), { gate });
       const L = (data.results || []).filter((r) => r.price > 0).map(normalize);
       ctx.waitUntil(remember(env, L));
       offers = offers.concat(bestPerStore(base, L).filter((o) => missing.includes(o.retailer)));
@@ -332,4 +341,11 @@ export async function compare(env, ctx, url) {
   const out = { base, offers: offers.sort((a, b) => a.priceCents - b.priceCents) };
   ctx.waitUntil(cache.put(key, new Response(JSON.stringify(out), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=21600' } })));
   return { ...out, source };
+}
+
+/** What customers' browsers receive: no internal check times or supplier details. */
+export function pub(p) {
+  if (!p) return p;
+  const { shipAt, detailFailAt, priceChecked, demo, ...x } = p;
+  return x;
 }

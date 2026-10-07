@@ -9,14 +9,14 @@
 <body>
 <div class="demo">DEMO PAYMENT · no real money · add SSLCommerz keys in .env to take real bKash / Nagad / card payments</div>
 <main class="oc" style="max-width:420px">
-  <div class="card sec" style="padding:24px;margin-top:30px">
-    <h1 style="font-size:22px" id="t">Pay</h1>
-    <p class="lead" id="s"></p>
-    <label class="fg" style="display:block"><span style="font-size:12px;font-weight:700;color:#86868B">Wallet number</span><input class="inp" id="w" inputmode="numeric"></label>
-    <label class="fg" style="display:block;margin-top:10px"><span style="font-size:12px;font-weight:700;color:#86868B">PIN (demo: any)</span><input class="inp" type="password" value="12345"></label>
-    <button class="btn dk" style="margin-top:14px" onclick="pay()">Confirm payment</button>
-    <a class="btn ln" href="/order" id="cancel">Cancel</a>
-  </div>
+<div class="card sec" style="padding:24px;margin-top:30px">
+<h1 style="font-size:22px" id="t">Pay</h1>
+<p class="lead" id="s"></p>
+<label class="fg" style="display:block"><span style="font-size:12px;font-weight:700;color:#86868B">Wallet number</span><input class="inp" id="w" inputmode="numeric"></label>
+<label class="fg" style="display:block;margin-top:10px"><span style="font-size:12px;font-weight:700;color:#86868B">PIN (demo: any)</span><input class="inp" type="password" value="12345"></label>
+<button class="btn dk" style="margin-top:14px" onclick="pay()">Confirm payment</button>
+<a class="btn ln" href="/order" id="cancel">Cancel</a>
+</div>
 </main>
 <script>
 const P = new URLSearchParams(location.search), id = P.get('order'), phone = P.get('phone'), m = P.get('method') || 'bkash';
@@ -26,8 +26,8 @@ document.getElementById('s').textContent = 'Order ' + id;
 document.getElementById('w').value = phone || '';
 document.getElementById('cancel').href = `/order?id=${id}&phone=${phone}&failed=1`;
 async function pay() {
-  const r = await fetch('/api/pay/demo/' + id, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, method: name }) });
-  if (r.ok) location.href = `/order?id=${id}&phone=${phone}&paid=1`; else alert((await r.json()).error);
+const r = await fetch('/api/pay/demo/' + id, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, method: name }) });
+if (r.ok) location.href = `/order?id=${id}&phone=${phone}&paid=1`; else alert((await r.json()).error);
 }
 </script>
 </body>
