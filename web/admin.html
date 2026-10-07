@@ -51,6 +51,8 @@ td{padding:12px;border-bottom:1px solid #F2F2F5;vertical-align:top}tr.r{cursor:p
 .qb a,.qb button{display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 14px;border-radius:12px;border:0;font-weight:800;font-size:13px;text-decoration:none;cursor:pointer;color:#fff}
 .qb small{font-weight:600;opacity:.85}.qb .am{background:#131921}.qb .am i{color:#FF9900;font-style:normal}.qb .wm{background:#0071DC}.qb .wm i{color:#FFC220;font-style:normal}.qb .ot{background:#F2F2F7;color:#1D1D1F}
 .ps .zn{background:#2E2E31;color:#FFD400}
+.cu .bdg{display:inline-block;font-size:11px;font-weight:800;border-radius:999px;padding:2px 8px;margin:1px;background:#F2F2F7;color:#86868B}.cu .bdg.on{background:#EAF7EE;color:#248A3D}
+.cu .acts{display:flex;gap:6px;flex-wrap:wrap}.cu .acts button{height:32px;padding:0 12px;border-radius:9px;border:0;font-weight:800;font-size:12px;cursor:pointer}.cu .op{background:#1D1D1F;color:#FFD400}.cu .ps2{background:#F2F2F7;color:#D92D20}
 /* phones & tablets */
 .tabs2{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding-bottom:2px}.tabs2::-webkit-scrollbar{display:none}.tabs2 button{flex:none;white-space:nowrap}
 #t-dash .card,#t-money .card,#t-buy .card{overflow-x:auto}
@@ -77,7 +79,7 @@ td{padding:12px;border-bottom:1px solid #F2F2F5;vertical-align:top}tr.r{cursor:p
 <header class="hdr"><a class="logo" href="/admin" aria-label="WOOW home"><svg class="lg-s" viewBox="0 0 53.8 32" height="32" aria-hidden="true"><circle cx="36.83" cy="16" r="16" fill="#FFD400"/><path d="M49.30 15.56A12.48 12.48 0 0 0 45.96 7.49" stroke="#2E2E31" stroke-width="1.28" stroke-linecap="round" fill="none"/><circle cx="16" cy="16" r="16.80" fill="#2E2E31"/><circle cx="16" cy="16" r="16" fill="#FFD400"/><path d="M15.13 3.55A12.48 12.48 0 0 0 3.55 15.13" stroke="#2E2E31" stroke-width="1.28" stroke-linecap="round" fill="none"/><circle cx="18.34" cy="16" r="2.46" fill="#2E2E31"/><circle cx="26.45" cy="16" r="2.46" fill="#2E2E31"/><circle cx="34.42" cy="16" r="2.46" fill="#2E2E31"/></svg><span class="lg-t"><b>wOOw</b><small>Borderless Possibilities...</small></span><small class="lg-tag">Admin</small></a><nav><a class="hb" href="/" target="_blank">Open shop ↗</a></nav></header>
 <div class="demo" id="demoBar" hidden></div>
 <main>
-  <div class="tabs2"><button class="on" data-t="dash">📊 Dashboard</button><button data-t="buy">🛒 Purchase sheet <em id="buyN"></em></button><button data-t="money">💰 Money</button><button data-t="orders">Orders</button><button data-t="settings">Settings</button></div>
+  <div class="tabs2"><button class="on" data-t="dash">📊 Dashboard</button><button data-t="buy">🛒 Purchase sheet <em id="buyN"></em></button><button data-t="money">💰 Money</button><button data-t="cust">👥 Customers</button><button data-t="orders">Orders</button><button data-t="settings">Settings</button></div>
   <section id="t-dash">
     <div class="dh"><div class="seg" id="dDays"><button data-d="1">Today</button><button class="on" data-d="7">7 days</button><button data-d="30">30 days</button></div><button class="hb dk" onclick="loadDash()">Refresh</button></div>
     <div id="dash"><div class="card sec">Loading…</div></div>
@@ -92,6 +94,11 @@ td{padding:12px;border-bottom:1px solid #F2F2F5;vertical-align:top}tr.r{cursor:p
   <section id="t-money" hidden>
     <div class="dh"><div class="seg" id="mDays"><button data-d="1">Today</button><button data-d="7">7 days</button><button class="on" data-d="30">30 days</button><button data-d="365">1 year</button></div><button class="hb" style="background:#fff;color:#1D1D1F;border:1.5px solid #E5E5EA" onclick="csvMoney()">⬇ Export CSV</button><button class="hb dk" onclick="loadMoney()">Refresh</button></div>
     <div id="money"><div class="card sec">Loading…</div></div>
+  </section>
+  <section id="t-cust" hidden>
+    <div class="dh"><input class="inp" id="cuQ" placeholder="Search name, mobile, email" style="max-width:300px"><button class="hb dk" onclick="loadCust()">Refresh</button></div>
+    <p class="lead2">Open any customer's portal without their password (link works once, session lasts 2 hours, a yellow bar shows it's WOOW admin).</p>
+    <div class="card" style="overflow:auto"><table class="cu"><thead><tr><th>Customer</th><th>Signs in with</th><th>Orders</th><th>Joined · last seen</th><th></th></tr></thead><tbody id="cuRows"></tbody></table></div>
   </section>
   <section id="t-orders" hidden>
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap"><select class="inp" id="fSt" style="width:auto"><option value="">All statuses</option></select><input class="inp" id="fQ" placeholder="Search order no., name, phone" style="max-width:280px"><button class="hb dk" onclick="load()">Refresh</button></div>

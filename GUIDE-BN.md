@@ -102,6 +102,17 @@ Admin panel: `https://...workers.dev/admin` → ইউজার `admin`, পা�
 - **লুকানো** — customer এর browser এ কোথাও supplier (Zinc) এর নাম নেই, কোড minify করা, error এ সাধারণ বার্তা।
 - **আপনার account সুরক্ষা (নিজে করুন)** — Cloudflare, GitHub, Zinc, Gmail এ 2-Step verification চালু করুন; ADMIN_PASSWORD লম্বা ও আলাদা রাখুন; Zinc wallet এ অল্প টাকা রাখুন; চাইলে Cloudflare Zero Trust → Access দিয়ে /admin শুধু আপনার email এ সীমিত করুন; shop.woowglobal.com custom domain দিন।
 
+### এক ক্লিকে লগইন: Google · Apple · WhatsApp
+একজন customer = একটা mobile নম্বর। Gmail, Apple বা WhatsApp যেভাবেই ঢুকুক, একই account এ ঢুকবে (Google/Apple দিয়ে প্রথমবার ঢুকলে একবার mobile নম্বর চায়, WhatsApp code দিয়ে যাচাই করে পুরনো account এর সাথে জুড়ে দেয়)। Password ভুলে গেলে WhatsApp code / Google দিয়ে ঢুকে **Account → Set a password**।
+বোতামগুলো চালু হবে Cloudflare এ এই Secret গুলো দিলে:
+- **Google** (ফ্রি): console.cloud.google.com → APIs & Services → Credentials → Create OAuth client ID → Web application → Authorized JavaScript origins: `https://woow-shop.woowglobal.workers.dev` (আর পরে `https://shop.woowglobal.com`) → Client ID কপি → Cloudflare এ **GOOGLE_CLIENT_ID**।
+- **WhatsApp code**: Meta WhatsApp Business (Cloud API) → Phone number ID → **WA_PHONE_ID**, permanent access token → **WA_TOKEN** (Secret), Authentication template নাম `woow_login_code` (copy-code button সহ) অনুমোদন করান (অন্য নাম হলে **WA_OTP_TEMPLATE**)।
+- **Apple** (Apple Developer $99/বছর): Services ID → **APPLE_CLIENT_ID**, domain verify, Return URL = shop এর লিংক।
+- কোনোটা না দিলে সেই বোতাম দেখাবে না; mobile + password সবসময় থাকে।
+
+### Admin → 👥 Customers
+সব customer, কে কীভাবে লগইন করে (Google/Apple/WhatsApp/Password), কত order। **Open portal ↗** — password ছাড়াই customer এর account খুলে দেখুন/সাহায্য করুন (link একবারই কাজ করে, ২ ঘণ্টা, উপরে হলুদ "WOOW admin — viewing" দেখায়, Exit দিয়ে বের হন)। **Pause** দিয়ে account বন্ধ।
+
 ## লাইভে যাওয়ার আগে চেকলিস্ট
 
 - [ ] `ADMIN_PASSWORD` শক্ত

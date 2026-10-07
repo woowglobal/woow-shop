@@ -49,15 +49,46 @@ async function api(path, body) {
 }
 
 // ── accounts: browsing is open; cart, checkout and price requests need sign-in ──
-let ME = null, AFTER = null, AMODE = 'in';
-function drawMe() { $('acctN').textContent = ME ? ME.name.split(' ')[0] : 'Sign in'; }
-function acct() { if (!ME) return openAuth(); $('meN').textContent = ME.name; $('meP').textContent = ME.phone + (ME.email ? ' · ' + ME.email : ''); $('meM').hidden = false; }
+// One mobile number = one customer: Google, Apple, WhatsApp and password all lead to the same account.
+let ME = null, AFTER = null, AMODE = 'in', PENDING = null;
+function drawMe() {
+  $('acctN').textContent = ME ? ME.name.split(' ')[0] : 'Sign in';
+  $('asBar').hidden = !ME?.asAdmin; document.body.classList.toggle('has-asb', !!ME?.asAdmin);
+  if (ME?.asAdmin) $('asBar').innerHTML = `🛡️ WOOW admin — viewing <b>${esc(ME.name)}</b>'s account (${esc(ME.phone)}) <button onclick="signOut()">Exit</button>`;
+}
+function acct() {
+  if (!ME) return openAuth();
+  $('meN').textContent = ME.name; $('meP').textContent = ME.phone + (ME.email ? ' · ' + ME.email : '');
+  const L = ME.linked || {};
+  $('meL').innerHTML = [['google', 'Google'], ['apple', 'Apple'], ['whatsapp', 'WhatsApp'], ['password', 'Password']].map(([k, n]) => `<span class="${L[k] ? 'on' : ''}">${L[k] ? '✓' : '○'} ${n}</span>`).join('');
+  $('pwT').textContent = L.password ? 'Change password' : 'Set a password';
+  const gl = $('gLink'); gl.hidden = !(CFG.auth?.google && !L.google);
+  if (!gl.hidden) loadGoogle(() => { gl.innerHTML = ''; google.accounts.id.renderButton(gl, { theme: 'outline', size: 'large', text: 'continue_with', shape: 'pill', width: 300 }); }, true);
+  $('meM').hidden = false;
+}
+async function setPw() {
+  const pw = prompt('New password (at least 6 characters)'); if (!pw) return;
+  try { await api('/api/me/password', { password: pw }); ME.linked = { ...(ME.linked || {}), password: true }; toast('✓ Password saved'); acct(); } catch (e) { toast(e.message); }
+}
 function needLogin(fn, why) { if (ME) return fn(); AFTER = fn; openAuth(why); }
+function aErr(m) { $('aErr').textContent = m || ''; $('aErr').style.display = m ? 'block' : 'none'; }
+function aStep(st) {
+  document.querySelectorAll('#authM .ast').forEach((x) => { x.hidden = x.dataset.s !== st; });
+  $('aBack').hidden = st === 'start'; aErr('');
+  $('aT').textContent = { start: 'Sign in to WOOW', 'wa-phone': 'Continue with WhatsApp', 'wa-code': 'Enter the code', 'add-phone': 'Almost done', password: AMODE === 'up' ? 'Create your WOOW account' : 'Sign in', forgot: 'Forgot password?' }[st];
+  $('aWhy').hidden = st !== 'start';
+  const f = { 'wa-phone': 'wPhone', 'wa-code': 'wCode', 'add-phone': 'pPhone', password: 'aPhone' }[st]; if (f) setTimeout(() => $(f).focus(), 60);
+  if (st === 'password') setAMode(AMODE);
+  if (st === 'forgot') { $('fgWa').hidden = !CFG.auth?.whatsapp; $('fgG').hidden = !CFG.auth?.google; }
+}
 function openAuth(why) {
   $('aWhy').textContent = why || 'Sign in to add to cart and pay in Taka.';
-  $('aErr').style.display = 'none'; setAMode(AMODE);
-  $('aWa').href = `https://wa.me/${CFG.whatsapp}?text=${encodeURIComponent('Hi WOOW, I forgot my WOOW Shop password.')}`;
-  $('authM').hidden = false; setTimeout(() => $(AMODE === 'up' ? 'aName' : 'aPhone').focus(), 50);
+  $('aWa').href = `https://wa.me/${CFG.whatsapp}?text=${encodeURIComponent('Hi WOOW, I need help signing in to WOOW Shop.')}`;
+  const A = CFG.auth || {};
+  $('waBtn').hidden = !A.whatsapp; $('apBtn').hidden = !A.apple; $('gWrap').hidden = !A.google;
+  PENDING = null; aStep(A.google || A.apple || A.whatsapp ? 'start' : 'password');
+  $('authM').hidden = false;
+  if (A.google) loadGoogle(() => { $('gBtn').innerHTML = ''; google.accounts.id.renderButton($('gBtn'), { theme: 'outline', size: 'large', text: 'continue_with', shape: 'pill', width: Math.min(340, $('gWrap').clientWidth || 320), logo_alignment: 'center' }); });
 }
 function closeAuth() { $('authM').hidden = true; AFTER = null; }
 function setAMode(mo) {
@@ -68,15 +99,75 @@ function setAMode(mo) {
 }
 $('aTabs').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setAMode(b.dataset.a); });
 $('aPass').addEventListener('keydown', (e) => { if (e.key === 'Enter') doAuth(); });
+$('wPhone').addEventListener('keydown', (e) => { if (e.key === 'Enter') waSend(); });
+$('wCode').addEventListener('input', () => { if ($('wCode').value.replace(/\D/g, '').length === 6 && $('wNameL').hidden) waVerify(); });
+function forgot() { aStep('forgot'); }
+function welcome(d) {
+  ME = d.user; drawMe(); $('authM').hidden = true; $('aPass').value = ''; PENDING = null;
+  toast('✓ Welcome, ' + ME.name.split(' ')[0]);
+  const f = AFTER; AFTER = null; if (f) f(); else if (document.querySelector('#v-pay.on')) rPay();
+}
 async function doAuth() {
-  const btn = $('aBtn'); btn.disabled = true; $('aErr').style.display = 'none';
-  try {
-    const d = await api('/api/auth/' + (AMODE === 'up' ? 'signup' : 'login'), { name: $('aName').value, phone: $('aPhone').value, email: $('aEmail').value, password: $('aPass').value });
-    ME = d.user; drawMe(); $('authM').hidden = true; $('aPass').value = '';
-    toast('✓ Welcome, ' + ME.name.split(' ')[0]);
-    const f = AFTER; AFTER = null; if (f) f();
-  } catch (e) { $('aErr').textContent = e.message; $('aErr').style.display = 'block'; }
+  const btn = $('aBtn'); btn.disabled = true; aErr('');
+  try { welcome(await api('/api/auth/' + (AMODE === 'up' ? 'signup' : 'login'), { name: $('aName').value, phone: $('aPhone').value, email: $('aEmail').value, password: $('aPass').value })); }
+  catch (e) { aErr(e.message); }
   btn.disabled = false;
+}
+// WhatsApp code
+let WA_PHONE = '';
+async function waSend(again) {
+  const phone = again ? WA_PHONE : (PENDING && !$('pPhone').closest('.ast').hidden ? $('pPhone').value : $('wPhone').value);
+  aErr('');
+  try {
+    const d = await api('/api/auth/wa/send', { phone }); WA_PHONE = phone;
+    $('wSent').innerHTML = `We sent a 6-digit code to <b>${esc(phone)}</b> on WhatsApp.` + (d.devCode ? ` <small>(test code: ${d.devCode})</small>` : '');
+    $('wCode').value = ''; $('wNameL').hidden = true; aStep('wa-code'); if (again) toast('Code sent again');
+  } catch (e) { aErr(e.message); }
+}
+async function waVerify() {
+  aErr('');
+  try {
+    const d = await api('/api/auth/wa/verify', { phone: WA_PHONE, code: $('wCode').value.replace(/\D/g, ''), name: $('wName').value, pending: PENDING?.pending });
+    if (d.needName) { $('wNameL').hidden = false; $('wName').focus(); aErr(''); $('wSent').innerHTML = 'New here? Tell us your name to create your account.'; return; }
+    welcome(d);
+  } catch (e) { aErr(e.message); }
+}
+// Google
+let gReady = false, gLinkMode = false;
+function loadGoogle(then, link) {
+  gLinkMode = !!link;
+  if (gReady) return then();
+  if (document.getElementById('gsi')) { setTimeout(() => loadGoogle(then, link), 300); return; }
+  const sc = document.createElement('script'); sc.id = 'gsi'; sc.src = 'https://accounts.google.com/gsi/client'; sc.async = true;
+  sc.onload = () => { google.accounts.id.initialize({ client_id: CFG.auth.google, callback: (r) => socialDone('google', r.credential), ux_mode: 'popup', auto_select: false }); gReady = true; then(); };
+  document.head.appendChild(sc);
+}
+async function socialDone(provider, credential, name) {
+  aErr('');
+  try {
+    if (gLinkMode && ME) { const d = await api('/api/auth/' + provider, { credential, link: 1 }); ME = d.user; toast('✓ ' + (provider === 'google' ? 'Google' : 'Apple') + ' linked'); acct(); return; }
+    const d = await api('/api/auth/' + provider, { credential, name });
+    if (d.pending) { PENDING = d; $('pPhone').value = ''; aStep('add-phone'); return; }
+    welcome(d);
+  } catch (e) { aErr(e.message); if ($('authM').hidden) toast(e.message); }
+}
+async function addPhone() {
+  aErr('');
+  if (CFG.auth?.whatsapp) return waSend();
+  try { welcome(await api('/api/auth/complete', { pending: PENDING.pending, phone: $('pPhone').value })); } catch (e) { aErr(e.message); }
+}
+// Apple
+let apReady = false;
+async function appleSignIn() {
+  try {
+    if (!apReady) {
+      await new Promise((ok, no) => { const sc = document.createElement('script'); sc.src = 'https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/1/en_US/appleid.auth.js'; sc.onload = ok; sc.onerror = no; document.head.appendChild(sc); });
+      AppleID.auth.init({ clientId: CFG.auth.apple, scope: 'name email', redirectURI: location.origin + '/', usePopup: true }); apReady = true;
+    }
+    const r = await AppleID.auth.signIn();
+    const n = r.user?.name ? [r.user.name.firstName, r.user.name.lastName].filter(Boolean).join(' ') : '';
+    socialDone('apple', r.authorization.id_token, n);
+  } catch (e) { if (e?.error !== 'popup_closed_by_user') aErr('Apple sign-in did not finish. Please try again.'); }
 }
 async function signOut() { await api('/api/auth/logout', {}).catch(() => {}); ME = null; drawMe(); $('meM').hidden = true; go('browse'); toast('Signed out'); }
 
@@ -643,6 +734,8 @@ window.addEventListener('popstate', (e) => { if (e.state?.v === 'store') openSto
   $('rateTx').textContent = `$1 = ৳${CFG.rate}`; drawCats();
   if (CFG.demo.catalog || CFG.demo.payments) { $('demoBar').hidden = false; $('demoBar').textContent = 'Preview · ' + [CFG.demo.catalog && 'sample products', CFG.demo.payments && 'test payments'].filter(Boolean).join(' · '); }
   ME = CFG.me; drawMe();
+  const asId = new URLSearchParams(location.search).get('as');   // WOOW admin opening a customer's portal
+  if (asId) { history.replaceState(null, '', '/'); try { const d = await api('/api/auth/as', { id: asId }); ME = d.user; drawMe(); toast('Viewing as ' + ME.name); } catch (e) { toast(e.message); } }
   save(); rvDraw(); loadFeed(); loadForYou(); doSearch(); beacon('visit');
   const h = location.hash.slice(1); if (h === 'cart' || h === 'pay') go(h); else if (h.startsWith('store=')) openStore(h.slice(6), false);
 })();

@@ -5,6 +5,7 @@ import * as zinc from './zinc.js';
 import * as ssl from './sslcommerz.js';
 import * as auth from './auth.js';
 import { makeGate } from './guard.js';
+import * as social from './social.js';
 
 // WOOW Bangladesh office — free pickup point
 const PICKUP = { name: 'WOOW Global — Bangladesh Office', address: 'House #254, Road #03, Baridhara DOHS, Dhaka', hotline: '+88 09649-223322', hours: '10 AM – 6 PM', closed: 'Closed on Fridays and public holidays', map: 'https://www.google.com/maps/search/?api=1&query=House+254+Road+3+Baridhara+DOHS+Dhaka' };
@@ -200,7 +201,7 @@ async function handle(req, env, ctx) {
   if (path === '/api/config') {
     const p = await getPricing(env.DB);
     return json({
-      demo: { catalog: !env.ZINC_API_KEY, payments: !ssl.paymentsLive(env) }, me: auth.publicUser(await me()), pickup: PICKUP, homeDeliveryFee: p.homeDeliveryFee || 0, mapsKey: env.GOOGLE_MAPS_KEY || '', rate: p.rate, feePercent: p.feePercent, minFee: p.minFee, kgRate: p.kgRate,
+      demo: { catalog: !env.ZINC_API_KEY, payments: !ssl.paymentsLive(env) }, me: auth.publicUser(await me()), auth: { google: env.GOOGLE_CLIENT_ID || '', apple: env.APPLE_CLIENT_ID || '', whatsapp: social.waReady(env) }, pickup: PICKUP, homeDeliveryFee: p.homeDeliveryFee || 0, mapsKey: env.GOOGLE_MAPS_KEY || '', rate: p.rate, feePercent: p.feePercent, minFee: p.minFee, kgRate: p.kgRate,
       defaultKg: p.defaultKg, packagingPercent: p.packagingPercent, usShipping: p.usShipping, warehouseState: p.warehouseState, taxRate: taxRate(p), brokerageList: p.brokerageList, whatsapp: env.WHATSAPP_NUMBER || '8801816369701', rateLockMinutes: p.rateLockMinutes, flights: upcomingFlights(new Date(Date.now() + 6 * 3600e3), p, 12), transitDays: p.transitDays, dhakaDaysAfterFlight: p.dhakaDaysAfterFlight,
       stores: zinc.SEARCH_RETAILERS.map((r) => ({ id: r, name: zinc.retailerName(r) })),
       bank: { name: env.BANK_ACCOUNT_NAME || 'WOOW Global (BD)', number: env.BANK_ACCOUNT_NUMBER || '—', branch: env.BANK_NAME_BRANCH || '—' },
@@ -215,6 +216,37 @@ async function handle(req, env, ctx) {
   if (path === '/api/auth/login' && m === 'POST') {
     if (limited(req, 'li', 15, 60000)) return bad('Too many tries, please wait a minute.', 429);
     try { const r = await auth.login(env, req, await body(req)); return withCookie(json({ user: r.user }), auth.setCookie(r.token, secure)); } catch (e) { return bad(e.message, 401); }
+  }
+  // one-click sign-in (Google / Apple / WhatsApp code); the same mobile number = the same customer
+  const signedIn = async (r, extra = {}) => { if (!r.token) return json(r); const u = await env.DB.prepare('SELECT * FROM users WHERE id=(SELECT user_id FROM sessions WHERE token=?)').bind(await auth.sha(r.token)).first();
+    return withCookie(json({ user: auth.publicUser({ ...u, addresses: u.addresses ? JSON.parse(u.addresses) : [], ...extra }) }), auth.setCookie(r.token, secure)); };
+  if ((path === '/api/auth/google' || path === '/api/auth/apple') && m === 'POST') {
+    if (limited(req, 'so', 20, 60000)) return bad('Too many tries, please wait a minute.', 429);
+    const b = await body(req), provider = path.endsWith('google') ? 'google' : 'apple';
+    try {
+      if (b.link) { const u = await me(); if (!u) return bad('login', 401); await social.linkSocial(env, u, provider, b.credential); return json({ user: auth.publicUser(await auth.currentUser(env, req)) }); }
+      return await signedIn(await social.socialLogin(env, req, provider, b.credential, b.name));
+    } catch (e) { return bad(e.message, 400); }
+  }
+  if (path === '/api/auth/complete' && m === 'POST') {
+    if (social.waReady(env)) return bad('Please verify your mobile with the WhatsApp code.');
+    const b = await body(req);
+    try { return await signedIn(await social.completeWithoutCode(env, req, b.pending, b.phone)); } catch (e) { return bad(e.message); }
+  }
+  if (path === '/api/auth/wa/send' && m === 'POST') {
+    if (limited(req, 'ws', 6, 60000)) return bad('Too many tries, please wait a minute.', 429);
+    try { return json(await social.sendCode(env, req, (await body(req)).phone)); } catch (e) { return bad(e.message); }
+  }
+  if (path === '/api/auth/wa/verify' && m === 'POST') {
+    if (limited(req, 'wv', 15, 60000)) return bad('Too many tries, please wait a minute.', 429);
+    try { return await signedIn(await social.verifyCode(env, req, await body(req))); } catch (e) { return bad(e.message); }
+  }
+  if (path === '/api/auth/as' && m === 'POST') {
+    try { return await signedIn(await social.useAdminPortal(env, req, (await body(req)).id), { asAdmin: true }); } catch (e) { return bad(e.message); }
+  }
+  if (path === '/api/me/password' && m === 'POST') {
+    const u = await me(); if (!u) return bad('login', 401);
+    try { await auth.setPassword(env, u, (await body(req)).password); return json({ ok: true }); } catch (e) { return bad(e.message); }
   }
   if (path === '/api/auth/logout' && m === 'POST') { await auth.logout(env, req); return withCookie(json({ ok: true }), auth.clearCookie()); }
   if (path === '/api/me') { const u = await me(); return u ? json({ user: auth.publicUser(u) }) : bad('login', 401); }
@@ -462,6 +494,20 @@ async function adminApi(req, env, ctx, path, m) {
   }
   let em;
   if ((em = path.match(/^\/api\/admin\/expenses\/(\d+)\/delete$/)) && m === 'POST') { await env.DB.prepare('DELETE FROM expenses WHERE id=?').bind(+em[1]).run(); return json({ ok: true }); }
+  if (path === '/api/admin/users') {
+    const q = '%' + String(new URL(req.url).searchParams.get('q') || '').trim().replace(/[%_]/g, '') + '%';
+    const r = await env.DB.prepare(`SELECT u.id, u.name, u.phone, u.email, u.created_at, u.last_login, u.disabled, u.google_sub IS NOT NULL g, u.apple_sub IS NOT NULL a, u.phone_verified w, u.pass != '' p, u.addresses,
+      (SELECT COUNT(*) FROM orders o WHERE o.user_id=u.id OR o.phone=u.phone) orders, (SELECT COALESCE(SUM(amount_paid),0) FROM orders o WHERE o.user_id=u.id OR o.phone=u.phone) paid
+      FROM users u WHERE u.name LIKE ? OR u.phone LIKE ? OR IFNULL(u.email,'') LIKE ? ORDER BY u.created_at DESC LIMIT 200`).bind(q, q, q).all();
+    return json({ users: r.results.map((x) => ({ ...x, addresses: J(x.addresses) || [] })) });
+  }
+  let um;
+  if ((um = path.match(/^\/api\/admin\/users\/(U[a-f0-9]+)\/(portal|disable)$/)) && m === 'POST') {
+    if (um[2] === 'portal') return json({ url: '/?as=' + (await social.adminPortalLink(env, um[1])) });
+    const b = await body(req); await env.DB.prepare('UPDATE users SET disabled=? WHERE id=?').bind(b.disabled ? 1 : 0, um[1]).run();
+    if (b.disabled) await env.DB.prepare('DELETE FROM sessions WHERE user_id=? AND admin=0').bind(um[1]).run();
+    return json({ ok: true });
+  }
   if (path === '/api/admin/security') {
     if (m === 'POST') { const b = await body(req); await env.DB.prepare('DELETE FROM guard_block WHERE who=?').bind(String(b.who || '')).run(); return json({ ok: true }); }
     const now = Date.now();

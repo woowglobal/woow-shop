@@ -49,19 +49,22 @@ export const clearCookie = () => `${COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameS
 
 export async function currentUser(env, req) {
   const t = cookieOf(req); if (!t) return null;
-  const s = await env.DB.prepare('SELECT user_id, expires FROM sessions WHERE token=?').bind(await sha(t)).first().catch(() => null);
+  const s = await env.DB.prepare('SELECT user_id, expires, admin FROM sessions WHERE token=?').bind(await sha(t)).first().catch(() => null);
   if (!s || s.expires < Date.now()) return null;
-  const u = await env.DB.prepare('SELECT id, phone, name, email, addresses, disabled FROM users WHERE id=?').bind(s.user_id).first();
-  if (!u || u.disabled) return null;
-  return { ...u, addresses: u.addresses ? JSON.parse(u.addresses) : [] };
+  const u = await env.DB.prepare('SELECT id, phone, name, email, addresses, disabled, google_sub, apple_sub, phone_verified, pass FROM users WHERE id=?').bind(s.user_id).first();
+  if (!u || (u.disabled && !s.admin)) return null;
+  return { ...u, addresses: u.addresses ? JSON.parse(u.addresses) : [], asAdmin: !!s.admin };
 }
-async function newSession(env, req, userId) {
+export async function newSession(env, req, userId, { admin = false } = {}) {
   const token = rand(32);
-  await env.DB.prepare('INSERT INTO sessions (token,user_id,created,expires,ip) VALUES (?,?,?,?,?)').bind(await sha(token), userId, Date.now(), Date.now() + DAYS * 864e5, ipOf(req)).run();
-  await env.DB.prepare('UPDATE users SET last_login=? WHERE id=?').bind(new Date().toISOString(), userId).run();
+  await env.DB.prepare('INSERT INTO sessions (token,user_id,created,expires,ip,admin) VALUES (?,?,?,?,?,?)').bind(await sha(token), userId, Date.now(), Date.now() + (admin ? 2 * 3600e3 : DAYS * 864e5), ipOf(req), admin ? 1 : 0).run();
+  if (!admin) await env.DB.prepare('UPDATE users SET last_login=? WHERE id=?').bind(new Date().toISOString(), userId).run();
   return token;
 }
-export const publicUser = (u) => u && { name: u.name, phone: u.phone, email: u.email || '', addresses: u.addresses || [] };
+export const publicUser = (u) => u && {
+  name: u.name, phone: u.phone, email: u.email || '', addresses: u.addresses || [], asAdmin: !!u.asAdmin,
+  linked: { google: !!u.google_sub, apple: !!u.apple_sub, whatsapp: !!u.phone_verified, password: !!u.pass },
+};
 
 export async function signup(env, req, b) {
   const name = String(b.name || '').trim().slice(0, 80), phone = bdPhone(b.phone), email = String(b.email || '').trim().slice(0, 120), pw = String(b.password || '');
@@ -82,7 +85,7 @@ export async function login(env, req, b) {
   if (!phone || !pw) throw new Error('Enter your mobile number and password.');
   if (await tooManyFails(env, [['ph:' + phone, 8], ['ip:' + ipOf(req), 20]])) throw new Error('Too many wrong tries. Please wait 15 minutes or call WOOW: +88 09649-223322.');
   const u = await env.DB.prepare('SELECT * FROM users WHERE phone=?').bind(phone).first();
-  if (!u || u.disabled || !(await checkPassword(pw, u.pass))) { await addFail(env, 'ph:' + phone); await addFail(env, 'ip:' + ipOf(req)); throw new Error('Mobile number or password is not correct.'); }
+  if (!u || u.disabled || !u.pass || !(await checkPassword(pw, u.pass))) { await addFail(env, 'ph:' + phone); await addFail(env, 'ip:' + ipOf(req)); throw new Error('Mobile number or password is not correct.'); }
   return { token: await newSession(env, req, u.id), user: publicUser({ ...u, addresses: u.addresses ? JSON.parse(u.addresses) : [] }) };
 }
 
@@ -113,3 +116,9 @@ export async function deleteAddress(env, user, id) {
   await env.DB.prepare('UPDATE users SET addresses=? WHERE id=?').bind(JSON.stringify(list), user.id).run();
   return list;
 }
+
+export async function setPassword(env, user, pw) {
+  if (String(pw || '').length < 6) throw new Error('Password must be at least 6 characters.');
+  await env.DB.prepare('UPDATE users SET pass=? WHERE id=?').bind(await hashPassword(String(pw)), user.id).run();
+}
+export { rand, sha, ipOf };

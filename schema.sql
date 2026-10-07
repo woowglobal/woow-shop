@@ -14,11 +14,17 @@ CREATE TABLE IF NOT EXISTS search_cache (k TEXT PRIMARY KEY, data TEXT NOT NULL,
 -- back office: expenses (air freight, customs, warehouse, staff, courier, marketing, Zinc deposits…)
 CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, day TEXT NOT NULL, category TEXT NOT NULL, amount REAL NOT NULL, currency TEXT NOT NULL DEFAULT 'BDT', note TEXT, order_id TEXT, created_at TEXT NOT NULL);
 -- customer accounts, sessions, bot/cost guard, admin login lockout
-CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, phone TEXT UNIQUE NOT NULL, name TEXT NOT NULL, email TEXT, pass TEXT NOT NULL, addresses TEXT, created_at TEXT NOT NULL, last_login TEXT, disabled INTEGER NOT NULL DEFAULT 0);
-CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id TEXT NOT NULL, created INTEGER NOT NULL, expires INTEGER NOT NULL, ip TEXT);
+CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, phone TEXT UNIQUE NOT NULL, name TEXT NOT NULL, email TEXT, pass TEXT NOT NULL, addresses TEXT, created_at TEXT NOT NULL, last_login TEXT, disabled INTEGER NOT NULL DEFAULT 0, google_sub TEXT, apple_sub TEXT, phone_verified INTEGER NOT NULL DEFAULT 0, methods TEXT);
+CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id TEXT NOT NULL, created INTEGER NOT NULL, expires INTEGER NOT NULL, ip TEXT, admin INTEGER NOT NULL DEFAULT 0);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE TABLE IF NOT EXISTS guard_block (who TEXT PRIMARY KEY, until INTEGER NOT NULL, reason TEXT, at INTEGER NOT NULL, hits INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE IF NOT EXISTS auth_fail (id INTEGER PRIMARY KEY AUTOINCREMENT, k TEXT NOT NULL, ts INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_authfail ON auth_fail(k, ts);
 CREATE INDEX IF NOT EXISTS idx_zinc_who ON zinc_calls(who, ts);
 CREATE INDEX IF NOT EXISTS idx_track_sid ON track(sid, ts);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google ON users(google_sub);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_apple ON users(apple_sub);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+-- one-time WhatsApp login codes, and Google/Apple sign-ups waiting for a mobile number
+CREATE TABLE IF NOT EXISTS otp (phone TEXT PRIMARY KEY, code TEXT NOT NULL, expires INTEGER NOT NULL, tries INTEGER NOT NULL DEFAULT 0, sent INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE IF NOT EXISTS pending_auth (id TEXT PRIMARY KEY, data TEXT NOT NULL, expires INTEGER NOT NULL);

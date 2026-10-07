@@ -94,7 +94,8 @@ async function saveSet() {
 document.querySelector('.tabs2').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b) return;
   document.querySelectorAll('.tabs2 button').forEach((x) => x.classList.toggle('on', x === b));
-  ['dash', 'buy', 'money', 'orders', 'settings'].forEach((t) => { $('t-' + t).hidden = b.dataset.t !== t; });
+  ['dash', 'buy', 'money', 'cust', 'orders', 'settings'].forEach((t) => { $('t-' + t).hidden = b.dataset.t !== t; });
+  if (b.dataset.t === 'cust') loadCust();
   if (b.dataset.t === 'money') loadMoney(); if (b.dataset.t === 'settings') loadSet(); if (b.dataset.t === 'dash') loadDash(); if (b.dataset.t === 'buy') loadBuy();
 });
 
@@ -298,5 +299,21 @@ function csvMoney() {
   const text = rows.map((r) => r.map((v) => '"' + String(v ?? '').replace(/"/g, '""') + '"').join(',')).join('\n');
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['\ufeff' + text], { type: 'text/csv' })); a.download = 'woow-money-' + new Date().toISOString().slice(0, 10) + '.csv'; a.click();
 }
+
+// ───────── Customers: accounts, sign-in methods, open their portal ─────────
+let cuT = null;
+$('cuQ').oninput = () => { clearTimeout(cuT); cuT = setTimeout(loadCust, 300); };
+async function loadCust() {
+  const d = await api('/api/admin/users?q=' + encodeURIComponent($('cuQ').value.trim()));
+  const b = (on, n) => `<span class="bdg ${on ? 'on' : ''}">${n}</span>`;
+  $('cuRows').innerHTML = d.users.length ? d.users.map((u) => `<tr><td><b>${esc(u.name)}</b>${u.disabled ? ' <span class="tagb no">Paused</span>' : ''}<br>${esc(u.phone)}<br><small style="color:#86868B">${esc(u.email || '')}${u.addresses.length ? ' · ' + u.addresses.length + ' address' + (u.addresses.length > 1 ? 'es' : '') : ''}</small></td>
+    <td>${b(u.g, 'Google')}${b(u.a, 'Apple')}${b(u.w, 'WhatsApp')}${b(u.p, 'Password')}</td>
+    <td><b>${u.orders}</b><br><small style="color:#86868B">${tk(u.paid)} paid</small></td>
+    <td><small>${new Date(u.created_at).toLocaleDateString()}<br>${u.last_login ? new Date(u.last_login).toLocaleString() : '—'}</small></td>
+    <td><div class="acts"><button class="op" onclick="portal('${u.id}')">Open portal ↗</button><button class="ps2" onclick="pause('${u.id}',${u.disabled ? 0 : 1})">${u.disabled ? 'Resume' : 'Pause'}</button><a class="hb" style="height:32px;background:#25D366;color:#fff;text-decoration:none" target="_blank" rel="noopener" href="https://wa.me/88${u.phone}">WhatsApp</a></div></td></tr>`).join('')
+    : '<tr><td colspan="5" style="text-align:center;color:#86868B;padding:30px">No customers yet</td></tr>';
+}
+async function portal(id) { try { const d = await api(`/api/admin/users/${id}/portal`, {}); window.open(d.url, '_blank'); } catch (e) { toast(e.message); } }
+async function pause(id, v) { if (v && !confirm('Pause this account? The customer can\'t sign in until you resume it.')) return; await api(`/api/admin/users/${id}/disable`, { disabled: v }); toast(v ? 'Paused' : 'Resumed'); loadCust(); }
 
 load(); loadBuy().then(loadDash); setInterval(() => { load(); loadBuy(); if (!$('t-dash').hidden) loadDash(); }, 60000);
