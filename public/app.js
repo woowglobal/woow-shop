@@ -34,22 +34,75 @@ let CART = load();
 function load() { try { return JSON.parse(localStorage.getItem('woowCart') || '[]'); } catch { return []; } }
 function save() { try { localStorage.setItem('woowCart', JSON.stringify(CART)); } catch {} $('cc').textContent = CART.reduce((a, x) => a + x.qty, 0); }
 function toast(t) { const e = $('toast'); e.textContent = t; e.classList.add('on'); clearTimeout(window._t); window._t = setTimeout(() => e.classList.remove('on'), 1800); }
+// anonymous visitor id (for the WOOW dashboard: searches, views, orders per visitor and city)
+const SID = (() => { try { let x = localStorage.getItem('woowSid'); if (!x) { x = Math.random().toString(36).slice(2, 12) + Date.now().toString(36); localStorage.setItem('woowSid', x); } return x; } catch { return 'nosid'; } })();
+function beacon(type, p = {}) { try { fetch('/api/t', { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type, sid: SID, url: p.url, store: p.retailer, title: p.title, price: p.priceCents }) }); } catch {} }
 async function api(path, body) {
-  const r = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {});
+  const r = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-sid': SID }, body: JSON.stringify(body) } : { headers: { 'x-sid': SID } });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(d.error || 'Something went wrong');
   return d;
 }
 
 // ── local estimate (the server always re-checks the final price) ──
+// US delivery store → WOOW warehouse: free over the store's limit, else Zinc's real fee or the store rule
+function usShip(retailer, subCents, shipCents) {
+  const r = (CFG.usShipping || {})[retailer] || (CFG.usShipping || {}).default || { freeOver: 35, fee: 7.99 };
+  if (subCents >= r.freeOver * 100) return { c: 0, free: true, r };
+  return { c: Number.isFinite(shipCents) ? shipCents : Math.round(r.fee * 100), r, need: Math.max(0, r.freeOver * 100 - subCents) };
+}
 function est(p, n = 1) {
-  const item = (p.priceCents / 100) * n * CFG.rate;
+  const sub = p.priceCents * n, item = (sub / 100) * CFG.rate;
+  const s = usShip(p.retailer, sub, p.shipCents);
+  const usD = (s.c / 100) * CFG.rate, tax = ((sub + s.c) / 100) * (CFG.taxRate || 0) / 100 * CFG.rate;
   const fee = Math.max(CFG.minFee, item * CFG.feePercent / 100);
   const sellerKg = Math.round((p.kg || CFG.defaultKg) * n * 100) / 100;
   const kg = Math.ceil(sellerKg * (1 + CFG.packagingPercent / 100) * 10) / 10; // + courier box
-  const ship = kg * CFG.kgRate;
-  return { item, fee, sellerKg, kg, ship, total: item + fee + ship, listed: !!p.kg };
+  const ship = kg * CFG.kgRate, now = item + usD + tax + fee;
+  return { item, s, usD, tax, fee, sellerKg, kg, ship, now, total: now + ship, listed: !!p.kg };
 }
+const taxNote = () => CFG.taxRate ? `${CFG.taxRate}% · ${CFG.warehouseState === 'NY' ? 'New York' : CFG.warehouseState} warehouse` : 'Delaware warehouse · tax-free';
+const shipNote = (s) => s.free ? `Free over $${s.r.freeOver}` : `${usd(s.c)} · add ${usd(s.need)} for free`;
+const storeLink = (p) => p.url && !p.url.startsWith('https://demo.') && !p.url.includes('#') ? p.url : null;
+
+// ── home feed: what Bangladeshi shoppers searched, viewed and bought (WOOW's own data → no Zinc cost) ──
+const since = (t) => { const m = Math.max(1, Math.round((Date.now() - t) / 60000)); return m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + 'h ago' : Math.round(m / 1440) + 'd ago'; };
+async function loadFeed() {
+  let d; try { d = await api('/api/feed'); } catch { return; }
+  const rail = (title, sub, list, tag) => list.length ? `<div class="srow fd"><div class="row-h"><div><b>${title}</b><small>${sub}</small></div></div><div class="rail">${remember(list).map((p) => card(p, tag(p))).join('')}</div></div>` : '';
+  $('feed').innerHTML = (d.searches.length ? `<div class="trend"><b>🔥 Trending</b>${d.searches.map((q) => `<button data-tq="${esc(q)}">${esc(q)}</button>`).join('')}</div>` : '') +
+    rail('🇧🇩 Just bought in Bangladesh', 'Real WOOW orders', d.bought, (p) => `${esc(p.city)} · ${since(p.at)}`) +
+    rail('⭐ Most popular', 'Loved by WOOW shoppers', d.popular, (p) => p.sold ? `🔥 ${p.sold} bought` : 'Popular in Bangladesh');
+  $('feed2').innerHTML = rail('✨ New today', 'Found by other shoppers in the last 24 h', d.fresh, () => 'New today');
+}
+document.addEventListener('click', (e) => { const t = e.target.closest('[data-tq]'); if (t) { setMode('search'); $('q').value = t.dataset.tq; doSearch(); $('rt').scrollIntoView({ behavior: 'smooth' }); } });
+
+// ── recently viewed: kept in this browser only, so showing them costs no Zinc calls ──
+const RV_MAX = 12;
+function rvLoad() { try { return JSON.parse(localStorage.getItem('woowRecent') || '[]'); } catch { return []; } }
+function rvAdd(p) {
+  const L = rvLoad().filter((x) => x.url !== p.url);
+  L.unshift({ url: p.url, retailer: p.retailer, store: p.store, title: p.title, image: p.image && p.image.length < 3000 ? p.image : null, priceCents: p.priceCents, kg: p.kg || null, stars: p.stars, reviews: p.reviews, at: Date.now() });
+  try { localStorage.setItem('woowRecent', JSON.stringify(L.slice(0, RV_MAX))); } catch {}
+}
+function rvDraw() {
+  const L = rvLoad();
+  for (const [id, skip] of [['rvB', null], ['rvD', cur && document.querySelector('#v-item.on') ? cur.url : null], ['rvC', null]]) {
+    const el = $(id); if (!el) continue;
+    const list = L.filter((x) => x.url !== skip).slice(0, 8);
+    el.hidden = !list.length;
+    if (!list.length) { el.innerHTML = ''; continue; }
+    el.innerHTML = `<div class="rv-h"><b>Recently viewed</b><button onclick="rvClear()">Clear</button></div><div class="rv-l">` + list.map((p) => {
+      SEEN.has(p.url) || SEEN.set(p.url, p);
+      return `<div class="rvi" data-rv="${esc(p.url)}"><img src="${esc(p.image || '')}" alt="" loading="lazy"><div><small>${esc(p.store)}</small><span>${esc(p.title)}</span><b>${tk(est(p).total)}</b></div><button class="rv-add" data-rva="${esc(p.url)}" aria-label="Add to cart">+</button></div>`;
+    }).join('') + '</div>';
+  }
+}
+function rvClear() { try { localStorage.removeItem('woowRecent'); } catch {} rvDraw(); }
+document.addEventListener('click', (e) => {
+  const a = e.target.closest('[data-rva]'); if (a) { const p = rvLoad().find((x) => x.url === a.dataset.rva); if (p) { SEEN.set(p.url, p); cmpCart(p.url); } return; }
+  const r = e.target.closest('[data-rv]'); if (r) { const p = rvLoad().find((x) => x.url === r.dataset.rv); if (p) { beacon('recent', p); openItem(SEEN.get(p.url) || p); } }
+});
 
 // ── delivery plan ──
 const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], MO = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -80,12 +133,12 @@ function localPlan(retailers) {
 }
 
 // ── browse ──
-function card(p) {
+function card(p, tag) {
   const c = est(p);
   const off = p.listPriceCents && p.listPriceCents > p.priceCents ? Math.round((1 - p.priceCents / p.listPriceCents) * 100) : 0;
   return `<button class="pc" data-u="${esc(p.url)}"><div class="pim"><span class="chip">${esc(p.store)}</span>${p.image ? `<img src="${esc(p.image)}" alt="" loading="lazy">` : ''}${off >= 5 ? `<span class="off">${off}% off</span>` : ''}</div>
   <div class="pb"><div class="nm">${esc(p.title)}</div>${p.stars ? `<div class="st">★ ${p.stars} <span>(${(p.reviews || 0).toLocaleString('en-US')})</span></div>` : ''}
-  <div class="bd">${tk(c.total)}</div><div class="us">${usd(p.priceCents)} at ${esc(p.store)}${off >= 5 ? `<span class="was">${usd(p.listPriceCents)}</span>` : ''}</div><span class="tg">Delivered to Dhaka</span></div></button>`;
+  <div class="bd">${tk(c.total)}</div><div class="us">${usd(p.priceCents)} at ${esc(p.store)}${off >= 5 ? `<span class="was">${usd(p.listPriceCents)}</span>` : ''}</div><span class="tg${tag ? ' t2' : ''}">${tag || 'Delivered to Dhaka'}</span></div></button>`;
 }
 async function doSearch() {
   const typed = $('q').value.trim(), q = typed || (cat !== 'All' ? CAT_WORD[cat] : '');
@@ -93,10 +146,10 @@ async function doSearch() {
   $('rt').textContent = typed ? `Results for “${typed}”${sn ? ' at ' + sn : ''}` : (cat !== 'All' ? cat : 'Popular right now') + (sn ? ' at ' + sn : '');
   $('grid').innerHTML = '<div class="skel"></div>'.repeat(8); $('rn').textContent = 'Searching…';
   try {
-    const d = await api(`/api/search?q=${encodeURIComponent(q)}&store=${searchable(store) ? store : 'all'}`);
+    const d = await api(`/api/search?q=${encodeURIComponent(q)}&store=${searchable(store) ? store : 'all'}${typed ? '' : '&t=0'}`);
     RESULTS = remember(d.results);
     $('rn').textContent = RESULTS.length + ' results';
-    $('grid').innerHTML = RESULTS.length ? RESULTS.map(card).join('') : '<div class="card empty">No matches. Try another word, or paste a product link.</div>';
+    $('grid').innerHTML = RESULTS.length ? RESULTS.map((p) => card(p)).join('') : '<div class="card empty">No matches. Try another word, or paste a product link.</div>';
   } catch (e) { $('grid').innerHTML = `<div class="card empty">${esc(e.message)}</div>`; $('rn').textContent = ''; }
 }
 async function doLink() {
@@ -110,7 +163,7 @@ async function doLink() {
 }
 const SEEN = new Map();
 function remember(L) { L.forEach((p) => SEEN.set(p.url, p)); return L; }
-document.addEventListener('click', (e) => { const b = e.target.closest('.pc'); if (b && (b.closest('#grid') || b.closest('#v-store'))) openItem(SEEN.get(b.dataset.u) || RESULTS.find((p) => p.url === b.dataset.u)); });
+document.addEventListener('click', (e) => { const b = e.target.closest('.pc'); if (b && (b.closest('#grid') || b.closest('#v-store') || b.closest('#feed') || b.closest('#feed2'))) openItem(SEEN.get(b.dataset.u) || RESULTS.find((p) => p.url === b.dataset.u)); });
 $('q').addEventListener('keydown', (e) => { if (e.key === 'Enter') doSearch(); });
 $('lnk').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLink(); });
 function setMode(m) {
@@ -142,8 +195,8 @@ $('tiles').addEventListener('click', (e) => {
 });
 
 // ── store pages ──
-async function fetchRow(storeId, q) {
-  const d = await api(`/api/search?q=${encodeURIComponent(q)}&store=${storeId}`);
+async function fetchRow(storeId, q, rail) {
+  const d = await api(`/api/search?q=${encodeURIComponent(q)}&store=${storeId}${rail ? '&t=0' : ''}`);
   return remember(d.results || []);
 }
 function rowHtml(id, title, q, hero) {
@@ -173,7 +226,7 @@ function drawStoreHome() {
   rowObs = new IntersectionObserver((ents) => ents.forEach(async (en) => {
     if (!en.isIntersecting) return; rowObs.unobserve(en.target);
     const rail = en.target.querySelector('.rail');
-    try { const L = await fetchRow(curStore.id, en.target.dataset.q); rail.innerHTML = L.length ? L.slice(0, 16).map(card).join('') : '<div class="row-empty">Nothing here right now.</div>'; }
+    try { const L = await fetchRow(curStore.id, en.target.dataset.q, true); rail.innerHTML = L.length ? L.slice(0, 16).map((p) => card(p)).join('') : '<div class="row-empty">Nothing here right now.</div>'; }
     catch (e) { rail.innerHTML = `<div class="row-empty">${esc(e.message)}</div>`; }
   }), { rootMargin: '300px' });
   $('spBody').querySelectorAll('.srow').forEach((r) => rowObs.observe(r));
@@ -187,7 +240,7 @@ async function storeSearch(q) {
   try {
     const L = await fetchRow(curStore.id, q);
     $('spN').textContent = L.length + ' results';
-    $('spGrid').innerHTML = L.length ? L.map(card).join('') : `<div class="card empty">No matches at ${esc(curStore.n)}. Try another word, or paste a product link.</div>`;
+    $('spGrid').innerHTML = L.length ? L.map((p) => card(p)).join('') : `<div class="card empty">No matches at ${esc(curStore.n)}. Try another word, or paste a product link.</div>`;
   } catch (e) { $('spGrid').innerHTML = `<div class="card empty">${esc(e.message)}</div>`; }
 }
 $('spQ').addEventListener('keydown', (e) => { if (e.key === 'Enter') storeSearch(); });
@@ -202,11 +255,11 @@ let cmpMin = false; try { cmpMin = localStorage.getItem('woowCmpMin') === '1'; }
 let cmpFor = null;
 function showCmp(open) {
   cmpMin = !open; try { localStorage.setItem('woowCmpMin', cmpMin ? '1' : '0'); } catch {}
-  $('cmp').hidden = cmpMin || !$('cmpL').dataset.n; $('cmpTab').hidden = !cmpMin || !$('cmpL').dataset.n;
+  $('cmp').hidden = cmpMin || !$('cmpL').dataset.n; $('cmpTab').hidden = !cmpMin || !$('cmpL').dataset.n; document.body.classList.toggle('cmpon', !$('cmp').hidden);
 }
 $('cmpMin').onclick = () => showCmp(false);
 $('cmpTab').onclick = () => showCmp(true);
-function hideCmp() { $('cmp').hidden = true; $('cmpTab').hidden = true; $('cmpL').dataset.n = ''; cmpFor = null; }
+function hideCmp() { document.body.classList.remove('cmpon'); $('cmp').hidden = true; $('cmpTab').hidden = true; $('cmpL').dataset.n = ''; cmpFor = null; }
 async function loadCompare(p) {
   cmpFor = p.url; $('cmpL').dataset.n = '';
   if (!['amazon', 'walmart', 'target'].includes(p.retailer)) { hideCmp(); return; }
@@ -221,8 +274,8 @@ async function loadCompare(p) {
     const s = STORES.find((x) => x.id === o.retailer) || { c: '#555', l: '?' }, c = est(o);
     return `<div class="co ${o.me ? 'me' : ''}">${i === 0 ? '<span class="best">Best price</span>' : ''}<img src="${esc(o.image || '')}" alt="">
       <div><div class="sn"><i style="background:${s.c}">${s.l}</i>${esc(o.store)}${o.me ? ' · viewing' : ''}</div><div class="t">${esc(o.title)}</div>
-      <div class="p"><b>${tk(c.total)}</b><small>${usd(o.priceCents)}</small></div><div class="kgx">≈ ${c.kg} kg · pay now ${tk(c.item + c.fee)}</div>${i === 0 && all.length > 1 ? `<div class="save">Save ${tk(top - c.total)}</div>` : ''}</div>
-      <div class="acts"><button class="a1" data-add="${esc(o.url)}">Add to cart</button>${o.me ? '' : `<button class="a2" data-view="${esc(o.url)}">View</button>`}</div></div>`;
+      <div class="p"><b>${tk(c.total)}</b><small>${usd(o.priceCents)}</small></div><div class="kgx">${c.s.c ? '+' + usd(c.s.c) + ' US delivery' : 'Free US delivery'} · ${CFG.taxRate ? 'tax ' + CFG.taxRate + '%' : 'tax-free'}</div>${i === 0 && all.length > 1 ? `<div class="save">Save ${tk(top - c.total)}</div>` : ''}</div>
+      <div class="acts"><button class="a1" data-add="${esc(o.url)}">Add to cart</button>${o.me ? '' : `<button class="a2" data-view="${esc(o.url)}">View</button>`}</div>${storeLink(o) ? `<a class="sl" href="${esc(o.url)}" target="_blank" rel="noopener">${usd(o.priceCents)} on ${esc(o.store)} ↗</a>` : ''}</div>`;
   }).join('');
   $('cmpN').textContent = all.length; $('cmpL').dataset.n = String(all.length); showCmp(!cmpMin);
 }
@@ -231,7 +284,7 @@ function cmpCart(u) {
   const p = SEEN.get(u) || (cur && cur.url === u ? cur : null); if (!p) return;
   const ex = CART.find((x) => x.url === p.url && !x.option);
   if (ex) ex.qty = Math.min(9, ex.qty + 1); else CART.push({ url: p.url, qty: 1, option: '', retailer: p.retailer, store: p.store, title: p.title, image: p.image, priceCents: p.priceCents, kg: p.kg || null });
-  save(); toast('✓ Added from ' + p.store);
+  save(); beacon('cart', p); toast('✓ Added from ' + p.store);
 }
 
 // ── price quote (Costco and other stores without instant prices) ──
@@ -255,14 +308,16 @@ async function sendQuote() {
 // ── product ──
 function openItem(p) {
   if (!p) return; window._from = document.querySelector('#v-store.on') ? 'store' : 'browse'; cur = p; qty = 1; $('dQ').textContent = 1; $('dOpt').value = '';
-  $('dImg').src = p.image || ''; $('dNm').textContent = p.title; $('dLink').href = p.url.startsWith('https://demo.') ? '#' : p.url;
+  $('dImg').src = p.image || ''; $('dNm').textContent = p.title;
+  const sl = storeLink(p); $('dSame').hidden = !sl; if (sl) { $('dSame').href = sl; $('dSame').innerHTML = `<span>✓ Same price as ${esc(p.store)}</span><b>${usd(p.priceCents)} on ${esc(p.store)} ↗</b>`; }
   $('dSrc').innerHTML = `<b>${esc(p.store)}</b>Sold and shipped in the USA`;
   $('dSt').innerHTML = p.stars ? `★ ${p.stars} <span>(${(p.reviews || 0).toLocaleString('en-US')} ratings)</span>` : '';
   upd(); go('item'); SEEN.set(p.url, p); loadCompare(p);
+  rvAdd(p); rvDraw(); beacon('view', p);
 }
 function q(d) { qty = Math.max(1, Math.min(9, qty + d)); $('dQ').textContent = qty; upd(); }
 function weightBox(c) {
-  return `<div class="mini"><span>Est. weight <b>≈ ${c.kg} kg</b></span><span>Pay now <b>${tk(c.item + c.fee)}</b></span><button onclick="showBrokerage()">See more</button></div>`;
+  return `<div class="mini"><span>Est. weight <b>≈ ${c.kg} kg</b></span><span>Pay now <b>${tk(c.now)}</b></span><button onclick="showBrokerage()">See more</button></div>`;
 }
 function secondInvoice() { return ''; }
 function showBrokerage() {
@@ -274,7 +329,8 @@ function upd() {
   const c = est(cur, qty);
   $('dBd').textContent = tk(c.total); $('dUs').textContent = `${usd(cur.priceCents * qty)} at ${cur.store} · rate ৳${CFG.rate}`;
   $('dBrk').innerHTML = `<div><span>Product price<small>${usd(cur.priceCents * qty)} × ৳${CFG.rate}</small></span><b>${tk(c.item)}</b></div>
-  <div><span>US sales tax<small>Our Delaware warehouse</small></span><b class="free">৳0</b></div>
+  <div><span>US delivery to WOOW warehouse<small>${shipNote(c.s)}</small></span><b class="${c.s.c ? '' : 'free'}">${c.s.c ? tk(c.usD) : 'Free'}</b></div>
+  <div><span>US sales tax<small>${taxNote()} <button class="lnk" onclick="showWhy()">Why?</button></small></span><b class="${c.tax ? '' : 'free'}">${tk(c.tax)}</b></div>
   <div><span>WOOW buying service<small>${CFG.feePercent}%, minimum ৳${CFG.minFee}</small></span><b>${tk(c.fee)}</b></div>
   <div><span>Shipping &amp; customs to Dhaka<small>Est. ${c.kg} kg × ৳${CFG.kgRate.toLocaleString('en-US')}</small></span><b>${tk(c.ship)}</b></div>`;
   $('dExtra').innerHTML = weightBox(c) + secondInvoice(c);
@@ -285,40 +341,71 @@ function addCart(show) {
   const ex = CART.find((x) => x.url === cur.url && x.option === option);
   if (ex) ex.qty = Math.min(9, ex.qty + qty);
   else CART.push({ url: cur.url, qty, option, retailer: cur.retailer, store: cur.store, title: cur.title, image: cur.image, priceCents: cur.priceCents, kg: cur.kg || null });
-  save(); if (show) toast('✓ Added to cart');
+  save(); beacon('cart', cur); if (show) toast('✓ Added to cart');
 }
 
 // ── cart + checkout (server quote) ──
-async function getQuote() {
+async function getQuote(ship) {
   if (!CART.length) return null;
-  const d = await api('/api/quote', { items: CART.map(({ url, qty, option }) => ({ url, qty, option })) });
+  const d = await api('/api/quote', { ship: ship ? 1 : 0, items: CART.map(({ url, qty, option }) => ({ url, qty, option })) });
   lastQuote = d; return d;
 }
 function sumHtml(d, btn) {
   const t = d.quote;
   return `<div class="tt">Order total</div>
   <div class="row" style="margin-top:8px"><span>Products (${'$' + t.usd.toFixed(2)})</span><b>${tk(t.product)}</b></div>
-  <div class="row"><span>US sales tax</span><b class="free">৳0</b></div>
+  <div class="row"><span>US delivery to warehouse</span><b class="${t.usShip ? '' : 'free'}">${t.usShip ? tk(t.usShip) : 'Free'}</b></div>
+  <div class="row"><span>US sales tax · ${t.taxRate ? t.taxRate + '% ' + esc(t.taxState) : 'Delaware 0%'}</span><b class="${t.usTax ? '' : 'free'}">${tk(t.usTax)}</b></div>
   <div class="row"><span>WOOW buying service</span><b>${tk(t.fee)}</b></div>
   <div class="row"><span>Shipping &amp; customs · est. ${t.kg} kg <button class="lnk" onclick="showBrokerage()">See more</button></span><b>${tk(t.shipping)}</b></div>
   <div class="tot"><span>Total</span><b>${tk(t.total)}</b></div>${btn}${planHtml(d.delivery)}`;
 }
 async function rCart() {
   save();
-  if (!CART.length) { $('cGroups').innerHTML = '<div class="card empty">Your cart is empty.</div>'; $('cSum').innerHTML = '<button class="btn" onclick="go(\'browse\')">Start shopping</button>'; return; }
-  const G = {}; CART.forEach((x, i) => (G[x.store] ||= []).push([x, i]));
-  $('cGroups').innerHTML = Object.keys(G).map((s) => `<div class="card sg"><h4><span class="chip" style="position:static">${esc(s)}</span>${G[s].length} item${G[s].length > 1 ? 's' : ''}</h4>` +
-    G[s].map(([x, i]) => `<div class="ci"><img src="${esc(x.image || '')}" alt=""><div><b>${esc(x.title)}</b><small>${x.option ? esc(x.option) + ' · ' : ''}Qty ${x.qty} · ${usd(x.priceCents * x.qty)}</small><br><button class="rm" onclick="rmv(${i})">Remove</button></div><div style="text-align:right"><b>${tk(x.priceCents / 100 * x.qty * CFG.rate)}</b><br><small>+ fees &amp; shipping</small></div></div>`).join('') + '</div>').join('') +
-    '<div class="card sec" style="display:flex;gap:12px;align-items:center"><span style="font-size:22px">📦</span><div><b style="font-size:13.5px">Different stores, one box</b><div style="color:#86868B;font-size:12px">We collect everything at our US warehouse and fly it together.</div></div></div>';
+  if (!CART.length) { $('route').innerHTML = ''; $('cGroups').innerHTML = '<div class="card empty">Your cart is empty.</div><div class="rv" id="rvC"></div>'; $('cSum').innerHTML = '<button class="btn" onclick="go(\'browse\')">Start shopping</button>'; rvDraw(); return; }
+  drawGroups(null);
   $('cSum').innerHTML = '<div class="tt">Calculating…</div>';
-  try { const d = await getQuote(); $('cSum').innerHTML = sumHtml(d, '<button class="btn dk" style="margin-top:14px" onclick="go(\'pay\')">Checkout in Taka →</button>'); }
-  catch (e) { $('cSum').innerHTML = `<div class="err" style="display:block">${esc(e.message)}</div>`; }
+  try {
+    const d = await getQuote();
+    drawGroups(d.quote); $('route').innerHTML = routeHtml(d);
+    $('cSum').innerHTML = sumHtml(d, '<button class="btn dk" style="margin-top:14px" onclick="go(\'pay\')">Checkout in Taka →</button>');
+  } catch (e) { $('cSum').innerHTML = `<div class="err" style="display:block">${esc(e.message)}</div>`; }
+}
+// Cart concept: one picture of the journey — US store → WOOW warehouse (tax-free) → WOOW flight → your door
+function routeHtml(d) {
+  const t = d.quote, p = d.delivery;
+  const step = (ic, h, v, sub) => `<div class="rs"><i>${ic}</i><b>${h}</b><em>${v}</em><small>${sub}</small></div>`;
+  return `<div class="route card">${step('🛍️', 'US stores', tk(t.product), 'Same price as the store')}<span class="ra"></span>${step('🏬', 'WOOW US warehouse', t.usShip ? '+' + tk(t.usShip + t.usTax) : (t.usTax ? '+' + tk(t.usTax) : 'Free'), t.usShip ? (t.taxRate ? 'US delivery + ' + t.taxRate + '% tax' : 'US delivery · 0% tax') : (t.taxRate ? 'Free delivery + ' + t.taxRate + '% tax' : 'Free delivery · 0% tax'))}<span class="ra"></span>${step('✈️', 'WOOW flight', tk(t.shipping), p ? fd(D(p.flight)) : 'Air to Dhaka')}<span class="ra"></span>${step('🏠', 'Your door', p ? fr(D(p.deliverFrom), D(p.deliverTo)) : '', 'Customs cleared')}
+  <button class="rq" onclick="showWhy()">Why this way? →</button></div>`;
+}
+function drawGroups(t) {
+  const G = {}; CART.forEach((x, i) => (G[x.retailer || x.store] ||= []).push([x, i]));
+  $('cGroups').innerHTML = Object.keys(G).map((r) => {
+    const first = G[r][0][0], st = t?.stores?.find((s) => s.retailer === r);
+    const sub = G[r].reduce((a, [x]) => a + x.priceCents * x.qty, 0), s = st ? { c: st.shipUsd * 100, free: !st.shipUsd, need: st.needUsd * 100, r: { freeOver: st.freeOver } } : usShip(r, sub);
+    const pct = Math.min(100, Math.round(sub / (s.r.freeOver * 100) * 100));
+    const bar = s.free ? `<div class="fs ok">✓ Free US delivery to our warehouse</div>` : `<div class="fs"><span>Add <b>${usd(s.need)}</b> from ${esc(first.store)} for free US delivery</span><i><u style="width:${pct}%"></u></i></div>`;
+    return `<div class="card sg"><h4><span class="chip" style="position:static">${esc(first.store)}</span>${G[r].length} item${G[r].length > 1 ? 's' : ''}<small>${usd(sub)}</small></h4>${bar}` +
+    G[r].map(([x, i]) => { const sl = storeLink(x); return `<div class="ci"><img src="${esc(x.image || '')}" alt=""><div><b>${esc(x.title)}</b><small>${x.option ? esc(x.option) + ' · ' : ''}Qty ${x.qty}</small>
+      <div class="tr">${sl ? `<a href="${esc(sl)}" target="_blank" rel="noopener">${esc(x.store)} ${usd(x.priceCents)} ↗</a>` : `<span>${esc(x.store)} ${usd(x.priceCents)}</span>`}<span class="eq">=</span><span>WOOW ${usd(x.priceCents)}</span><span class="ok">✓ Same price</span></div>
+      <button class="rm" onclick="rmv(${i})">Remove</button></div><div style="text-align:right"><b>${tk(x.priceCents / 100 * x.qty * CFG.rate)}</b></div></div>`; }).join('') + '</div>';
+  }).join('');
+}
+function showWhy() {
+  const T = CFG.taxRate, W = CFG.warehouseState === 'NY' ? 'New York' : 'Delaware';
+  const card = (ic, h, p) => `<div><i>${ic}</i><b>${h}</b><p>${p}</p></div>`;
+  $('whyL').innerHTML = card('🏷️', 'Same price as the store', 'You pay the exact US store price. Tap the store link to check it yourself.') +
+    card('🚚', 'Free US delivery over $35', 'Most stores deliver free to our US warehouse when your order from that store is $35 or more.') +
+    card('🏬', T ? `${W} warehouse · ${T}% tax` : 'Delaware warehouse · 0% tax', T ? `US law adds ${T}% sales tax for deliveries in ${W}.` : 'Delaware has no sales tax. New York would add 8.875% — you save that.') +
+    card('✈️', 'One box, one WOOW flight', 'US stores don\'t ship to Bangladesh. We collect every store in one box and fly it to your door.');
+  $('whyWa').href = `https://wa.me/${CFG.whatsapp}?text=${encodeURIComponent('Hi WOOW, I have a question about how Buy For Me works.')}`;
+  $('whyM').hidden = false;
 }
 function rmv(i) { CART.splice(i, 1); rCart(); }
 async function rPay() {
   if (!CART.length) return go('browse');
   $('pSum').innerHTML = '<div class="tt">Calculating…</div>';
-  let d; try { d = await getQuote(); } catch (e) { $('pSum').innerHTML = `<div class="err" style="display:block">${esc(e.message)}</div>`; return; }
+  let d; try { d = await getQuote(true); } catch (e) { $('pSum').innerHTML = `<div class="err" style="display:block">${esc(e.message)}</div>`; return; }
   drawPay(d);
 }
 function drawPay(d) {
@@ -327,7 +414,7 @@ function drawPay(d) {
   const ml = { bkash: 'bKash', nagad: 'Nagad', card: 'card', bank: 'bank transfer' }[method];
   $('pSum').innerHTML = sumHtml(d, `<div class="now"><span>Pay now</span><b>${tk(now)}</b></div>${plan === 'split' ? `<div class="row"><span>On arrival in Dhaka</span><b>${tk(t.shipping)}</b></div>` : ''}
    <button class="btn dk" id="payBtn" style="margin-top:12px" onclick="placeOrder()">Pay ${tk(now)} with ${ml}</button><div class="err" id="pErr"></div>
-   <p class="note">✓ We re-check the store price when you press Pay. Rate $1 = ৳${t.rate}. By paying you agree WOOW buys these items for you from US stores. Final shipping is based on actual weight.</p>`);
+   <p class="note">✓ Same price as the store website. We re-check it when you press Pay. Rate $1 = ৳${t.rate}. By paying you agree WOOW buys these items for you from US stores. Final shipping is based on actual weight.</p>`);
 }
 $('plan').addEventListener('click', (e) => { const b = e.target.closest('.op'); if (!b) return; $('plan').querySelectorAll('.op').forEach((x) => x.classList.toggle('on', x === b)); plan = b.dataset.v; if (lastQuote) drawPay(lastQuote); });
 $('pm').addEventListener('click', (e) => { const b = e.target.closest('.op'); if (!b) return; $('pm').querySelectorAll('.op').forEach((x) => x.classList.toggle('on', x === b)); method = b.dataset.m; if (lastQuote) drawPay(lastQuote); });
@@ -356,7 +443,7 @@ async function placeOrder() {
 function go(v) {
   if (v !== 'item') hideCmp();
   document.querySelectorAll('.v').forEach((x) => x.classList.toggle('on', x.id === 'v-' + v));
-  if (v === 'cart') rCart(); if (v === 'pay') rPay();
+  if (v === 'cart') rCart(); if (v === 'pay') rPay(); if (v === 'browse') rvDraw();
   window.scrollTo({ top: 0, behavior: 'smooth' });
   if (history.state?.v !== v) history.pushState({ v }, '', v === 'browse' ? '/' : '#' + v);
 }
@@ -368,6 +455,6 @@ window.addEventListener('popstate', (e) => { if (e.state?.v === 'store') openSto
   $('rateTx').textContent = `$1 = ৳${CFG.rate}`; drawCats();
   if (CFG.demo.zinc || CFG.demo.payments) { $('demoBar').hidden = false; $('demoBar').textContent = 'DEMO MODE · ' + [CFG.demo.zinc && 'sample products', CFG.demo.payments && 'test payments'].filter(Boolean).join(' · ') + ' · add your keys in Cloudflare (Settings → Variables and Secrets) to go live'; }
   try { const c = JSON.parse(localStorage.getItem('woowCustomer') || 'null'); if (c) { $('cName').value = c.name || ''; $('cPhone').value = c.phone || ''; $('cEmail').value = c.email || ''; $('cCity').value = c.city || 'Dhaka'; $('cAddr').value = c.address || ''; } } catch {}
-  save(); doSearch();
+  save(); rvDraw(); loadFeed(); doSearch(); beacon('visit');
   const h = location.hash.slice(1); if (h === 'cart' || h === 'pay') go(h); else if (h.startsWith('store=')) openStore(h.slice(6), false);
 })();

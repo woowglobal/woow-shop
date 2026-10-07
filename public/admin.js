@@ -76,16 +76,112 @@ const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 async function loadSet() {
   const { pricing: p } = await api('/api/admin/settings');
   $('sRate').value = p.rate; $('sFee').value = p.feePercent; $('sMin').value = p.minFee; $('sKg').value = p.kgRate; $('sDef').value = p.defaultKg; $('sLand').value = p.dhakaDaysAfterFlight; $('sPack').value = p.packagingPercent ?? 10; $('sBrk').value = (p.brokerageList || []).join('\n');
+  $('sWh').value = p.warehouseState || 'DE'; $('sNy').value = p.taxRates?.NY ?? 8.875; $('sDe').value = p.taxRates?.DE ?? 0;
+  $('sBud').value = ((p.zincDailyBudgetCents ?? 300) / 100).toFixed(2); $('sFresh').value = p.liveFreshMinutes ?? 15;
+  const SH = p.usShipping || {};
+  $('sShip').innerHTML = [...new Set(['amazon', 'walmart', 'target', 'bestbuy', 'macys', 'costco', ...Object.keys(SH).filter((k) => k !== 'default'), 'default'])].map((k) => `<div data-k="${k}">${k === 'default' ? 'Other stores' : esc(k)}<span><label style="flex:1;font-size:10.5px;color:#86868B">Free over $<input class="inp" data-f="freeOver" value="${SH[k]?.freeOver ?? 35}"></label><label style="flex:1;font-size:10.5px;color:#86868B">Else fee $<input class="inp" data-f="fee" value="${SH[k]?.fee ?? 7.99}"></label></span></div>`).join('');
   $('sDays').innerHTML = DAYS.map((d, i) => `<label><input type="checkbox" value="${i}" ${p.flightDays.includes(i) ? 'checked' : ''}>${d}</label>`).join('');
 }
 async function saveSet() {
   const flightDays = [...$('sDays').querySelectorAll('input:checked')].map((x) => +x.value);
-  try { await api('/api/admin/settings', { rate: $('sRate').value, feePercent: $('sFee').value, minFee: $('sMin').value, kgRate: $('sKg').value, defaultKg: $('sDef').value, dhakaDaysAfterFlight: $('sLand').value, packagingPercent: $('sPack').value, brokerageList: $('sBrk').value.split('\n'), flightDays }); toast('Settings saved'); } catch (e) { toast(e.message); }
+  try { await api('/api/admin/settings', { rate: $('sRate').value, feePercent: $('sFee').value, minFee: $('sMin').value, kgRate: $('sKg').value, defaultKg: $('sDef').value, dhakaDaysAfterFlight: $('sLand').value, packagingPercent: $('sPack').value, brokerageList: $('sBrk').value.split('\n'), flightDays,
+    warehouseState: $('sWh').value, taxRates: { DE: $('sDe').value, NY: $('sNy').value }, zincDailyBudgetCents: Math.round(Number($('sBud').value) * 100), liveFreshMinutes: $('sFresh').value,
+    usShipping: Object.fromEntries([...$('sShip').children].map((d) => [d.dataset.k, { freeOver: d.querySelector('[data-f=freeOver]').value, fee: d.querySelector('[data-f=fee]').value }])) }); toast('Settings saved'); } catch (e) { toast(e.message); }
 }
 document.querySelector('.tabs2').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b) return;
   document.querySelectorAll('.tabs2 button').forEach((x) => x.classList.toggle('on', x === b));
-  $('t-orders').hidden = b.dataset.t !== 'orders'; $('t-settings').hidden = b.dataset.t !== 'settings';
-  if (b.dataset.t === 'settings') loadSet();
+  ['dash', 'buy', 'orders', 'settings'].forEach((t) => { $('t-' + t).hidden = b.dataset.t !== t; });
+  if (b.dataset.t === 'settings') loadSet(); if (b.dataset.t === 'dash') loadDash(); if (b.dataset.t === 'buy') loadBuy();
 });
-load(); setInterval(load, 60000);
+
+// ───────── Dashboard: shop activity + Zinc calls & cost ─────────
+let DAYS_N = 7;
+const n0 = (x) => Number(x || 0).toLocaleString('en-US');
+const money = (x) => x == null ? '—' : '$' + (Number.isInteger(x) ? x / 100 : x).toFixed(2); // Zinc amounts in cents
+const ago = (ts) => { const m = Math.round((Date.now() - ts) / 60000); return m < 60 ? m + ' min' : m < 1440 ? Math.round(m / 60) + ' h' : Math.round(m / 1440) + ' d'; };
+const zoneTxt = (r) => [r.city, r.region, r.country].filter(Boolean).join(', ') || 'Unknown';
+const TYPE = { visit: '👋 Visit', search: '🔍 Search', view: '👀 Viewed', compare: '⚖️ Compared', cart: '🛒 Add to cart', checkout: '💳 Checkout', link: '🔗 Pasted link', quote: '💬 Quote request', order: '📦 Order placed', paid: '✅ Paid', recent: '↩ Recently viewed' };
+$('dDays').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; DAYS_N = +b.dataset.d; $('dDays').querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b)); loadDash(); });
+async function loadDash() {
+  let d; try { d = await api('/api/admin/dashboard?days=' + DAYS_N); } catch (e) { $('dash').innerHTML = `<div class="card sec">${esc(e.message)}</div>`; return; }
+  const C = d.counts, c = (k) => C[k]?.n || 0, ps = (k) => C[k]?.s || 0, z = d.zinc, t = z.today || {};
+  const kp = (l, v, sub) => `<div><small>${l}</small><b>${v}</b>${sub ? `<i>${sub}</i>` : ''}</div>`;
+  const fun = [['Visitors', d.people], ['Searched', ps('search')], ['Viewed product', ps('view')], ['Added to cart', ps('cart')], ['Checkout', ps('checkout')], ['Ordered', ps('order')], ['Paid', ps('paid')]];
+  const top = Math.max(1, d.people);
+  const paidCalls = z.byEndpoint.filter((x) => x.cost > 0).reduce((a, x) => a + x.n, 0), savedCalls = z.byEndpoint.filter((x) => /saved/.test(x.endpoint)).reduce((a, x) => a + x.n, 0);
+  const cost = z.byEndpoint.reduce((a, x) => a + x.cost, 0), budget = z.budgetCents || 0, bp = budget ? Math.min(100, Math.round((t.cost || 0) / budget * 100)) : 0;
+  const mx = Math.max(1, ...z.byDay.map((x) => x.paid + x.saved));
+  const w = z.wallet && !z.wallet.error ? z.wallet : null;
+  const usageRows = z.usage && z.usage.metrics ? Object.entries(z.usage.metrics).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${n0(v.total)}</td><td><small>${n0(v.prev_total)} before</small></td></tr>`).join('') : '';
+  const tbl = (head, rows) => `<table class="mt"><thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows || `<tr><td colspan="${head.length}" style="color:#86868B">No data yet</td></tr>`}</tbody></table>`;
+  $('dash').innerHTML = `
+  <div class="kp">${kp('Visitors', n0(d.people))}${kp('Searches', n0(c('search')), n0(ps('search')) + ' people')}${kp('Product views', n0(c('view')))}${kp('Add to cart', n0(c('cart')))}
+  ${kp('Orders placed', n0(d.orders.n))}${kp('Paid orders', n0(d.orders.paidN))}${kp('Money received', tk(d.orders.paid))}${kp('Zinc cost', money(cost), n0(paidCalls) + ' paid calls')}</div>
+  <div class="g2">
+    <div class="card sec"><h3>Customer journey <small>people</small></h3><div class="fn">${fun.map(([l, v]) => `<div><span>${l}</span><i style="width:${Math.max(2, Math.round(v / top * 100))}%"></i><b>${n0(v)}</b></div>`).join('')}</div></div>
+    <div class="card sec"><h3>Zinc.com <small>${d.demo ? 'demo — no key' : 'live'}</small></h3>
+      <div class="zb"><div><small>Balance</small><b>${w ? money(w.balance ?? w.spendable_balance) : '—'}</b></div><div><small>Paid calls · ${DAYS_N}d</small><b>${n0(paidCalls)}</b></div><div><small>Saved calls (free)</small><b style="color:#248A3D">${n0(savedCalls)}</b></div></div>
+      <div style="font-size:12px;display:flex;justify-content:space-between"><span>Today ${money(t.cost || 0)} of ${money(budget)} daily budget</span><b>${n0(t.paid)} paid · ${n0(t.saved)} saved</b></div>
+      <div class="bar"><u class="${bp > 85 ? 'hi' : ''}" style="width:${bp}%"></u></div>
+      ${z.byDay.length ? '' : '<p class="lead2" style="margin:14px 0">No Zinc calls yet.</p>'}<div class="ch" ${z.byDay.length ? '' : 'hidden'}>${z.byDay.map((x) => `<div title="${x.d}: ${x.paid} paid ($${(x.cost / 100).toFixed(2)}), ${x.saved} saved"><s style="height:${Math.round(x.saved / mx * 100)}%"></s><u style="height:${Math.round(x.paid / mx * 100)}%"></u><small>${x.d.slice(8)}</small></div>`).join('')}</div>
+      <p class="lead2" style="margin-top:22px" ${z.byDay.length ? '' : 'hidden'}>■ dark = paid call (≈ $0.01) · ■ green = answered free from WOOW's saved data</p>
+      ${tbl(['Call', 'Count', 'Cost', 'Failed'], z.byEndpoint.map((x) => `<tr><td>${esc(x.endpoint.replace('_', ' '))}</td><td>${n0(x.n)}</td><td>${money(x.cost)}</td><td>${x.fails || ''}</td></tr>`).join(''))}
+      ${usageRows ? '<h3 style="font-size:13px;margin:12px 0 4px">Zinc\'s own count</h3>' + tbl(['Endpoint', 'Calls', ''], usageRows) : ''}</div>
+  </div>
+  <div class="g2">
+    <div class="card sec"><h3>Top searches</h3>${tbl(['Search', 'Times', 'People'], d.searches.map((x) => `<tr><td>${esc(x.q)}${x.store && x.store !== 'all' ? ` <small>${esc(x.store)}</small>` : ''}</td><td>${n0(x.n)}</td><td>${n0(x.people)}</td></tr>`).join(''))}</div>
+    <div class="card sec"><h3>Customers by zone</h3>${tbl(['Zone', 'People', 'Searches', 'Orders', 'Paid'], d.zones.map((x) => `<tr><td>${esc(zoneTxt(x))}</td><td>${n0(x.people)}</td><td>${n0(x.searches)}</td><td>${n0(x.orders)}</td><td>${n0(x.paid)}</td></tr>`).join(''))}</div>
+  </div>
+  <div class="g2">
+    <div class="card sec"><h3>Most viewed products</h3>${tbl(['Product', 'Price', 'Views', 'Cart'], d.products.map((x) => `<tr><td><a href="${esc(x.url)}" target="_blank" rel="noopener" style="color:#0066CC;text-decoration:none">${esc((x.title || x.url).slice(0, 70))} ↗</a> <small>${esc(x.store || '')}</small></td><td>${x.price ? '$' + (x.price / 100).toFixed(2) : ''}</td><td>${n0(x.views)}</td><td>${n0(x.carts)}</td></tr>`).join(''))}</div>
+    <div class="card sec"><h3>By store</h3>${tbl(['Store', 'Searches', 'Views', 'Cart'], d.stores.map((x) => `<tr><td>${esc(x.store)}</td><td>${n0(x.searches)}</td><td>${n0(x.views)}</td><td>${n0(x.carts)}</td></tr>`).join(''))}
+      <h3 style="margin-top:16px">Live activity</h3><div style="max-height:420px;overflow:auto">${d.recent.map((r) => `<div class="act2">${TYPE[r.type] || esc(r.type)} ${r.q ? '· ' + esc(r.q.slice(0, 60)) : ''}${r.order_id ? ' · ' + esc(r.order_id) : ''}${r.price_cents && r.type !== 'order' && r.type !== 'paid' ? ' · $' + (r.price_cents / 100).toFixed(2) : r.price_cents ? ' · ' + tk(r.price_cents) : ''}<br><small>${esc(zoneTxt(r))} · ${ago(r.ts)} ago · visitor ${esc((r.sid || '').slice(0, 6))}</small></div>`).join('') || '<p class="lead2">No activity yet</p>'}</div></div>
+  </div>`;
+}
+
+// ───────── Purchase sheet: paid items to buy now ─────────
+let BUY = [], BUY_ALL = 0;
+$('bAll').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; BUY_ALL = +b.dataset.a; $('bAll').querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b)); loadBuy(); });
+$('bQ').oninput = () => drawBuy();
+async function loadBuy() {
+  const d = await api('/api/admin/purchase' + (BUY_ALL ? '?all=1' : ''));
+  BUY = d.orders.flatMap((o) => o.items.map((it, i) => ({ o, it, i, paidAt: Date.parse(o.payment?.at || o.updated_at) })));
+  const open = BUY.filter((r) => !r.it.buy).length; $('buyN').textContent = BUY_ALL ? '' : (open || '');
+  drawBuy();
+}
+function waText(r, kind) {
+  const n = r.o.customer.name.split(' ')[0], t = r.it.title.slice(0, 70);
+  return kind === 'cant' ? `Hi ${n}, GENI from WOOW here. Sorry — we couldn't buy "${t}" from ${r.it.store} for your order ${r.o.id}${r.it.buy?.reason ? ' (' + r.it.buy.reason + ')' : ''}. We can refund it or find another option for you. Reply here.`
+    : kind === 'bought' ? `Hi ${n}, GENI from WOOW here. Good news — we bought "${t}" from ${r.it.store} for your order ${r.o.id}. It's on the way to our US warehouse. Track: ${location.origin}/order?id=${r.o.id}&phone=${r.o.phone}`
+    : `Hi ${n}, GENI from WOOW here about your order ${r.o.id}.`;
+}
+const wa = (r, k) => `https://wa.me/88${r.o.phone}?text=${encodeURIComponent(waText(r, k))}`;
+function drawBuy() {
+  const q = $('bQ').value.trim().toLowerCase();
+  const L = BUY.filter((r) => !q || (r.o.id + ' ' + r.o.customer.name + ' ' + r.o.phone + ' ' + r.it.title + ' ' + r.it.store).toLowerCase().includes(q));
+  $('bRows').innerHTML = L.length ? L.map((r, k) => {
+    const b = r.it.buy, mins = (Date.now() - r.paidAt) / 60000, z = r.o.customer.zone || {};
+    const st = b?.status === 'bought' ? `<span class="tagb ok">✓ Bought</span><br><small>${esc(b.storeOrder || '')}${b.costUsd ? ' · $' + b.costUsd.toFixed(2) : ''}</small>` : b?.status === 'cant' ? `<span class="tagb no">Can't buy</span><br><small>${esc(b.reason || '')}</small>` : (() => { const g = (r.o.zinc?.groups || []).find((x) => x.retailer === r.it.retailer && x.id); return g ? `<span class="tagb">Zinc: ${esc(g.status)}</span>` : '<span class="tagb">To buy</span>'; })();
+    return `<tr><td class="w ${!b && mins > 60 ? 'late' : ''}">${b ? '—' : ago(r.paidAt)}</td>
+    <td><b>${r.o.id}</b><br>${esc(r.o.customer.name)} · ${esc(r.o.phone)}<br><small style="color:#86868B">${esc(r.o.customer.city)}${z.city ? ' · seen in ' + esc(z.city) : ''}</small></td>
+    <td style="min-width:260px"><img src="${esc(r.it.image || '')}" alt=""><a href="${esc(r.it.url)}" target="_blank" rel="noopener">${esc(r.it.title.slice(0, 80))} ↗</a><br><small style="color:#86868B">${esc(r.it.store)}${r.it.option ? ' · ' + esc(r.it.option) : ''}</small></td>
+    <td><b>${r.it.qty}</b></td><td>$${(r.it.priceCents / 100).toFixed(2)}<br><small style="color:#86868B">line $${(r.it.priceCents * r.it.qty / 100).toFixed(2)}</small></td><td>${st}</td>
+    <td><div class="acts">${b ? `<button class="un" onclick="mark(${k},'pending')">Undo</button>` : `<button class="ok" onclick="mark(${k},'bought')">✓ Bought</button><button class="no" onclick="mark(${k},'cant')">✕ Can't</button>`}<a class="wa" target="_blank" rel="noopener" href="${wa(r, b?.status)}">WhatsApp</a></div></td></tr>`;
+  }).join('') : '<tr><td colspan="7" style="text-align:center;color:#86868B;padding:30px">Nothing to buy right now 🎉</td></tr>';
+  window._L = L;
+}
+async function mark(k, status) {
+  const r = window._L[k]; const b = { i: r.i, status };
+  if (status === 'bought') { const so = prompt('Store order number (from ' + r.it.store + ')', ''); if (so === null) return; b.storeOrder = so; const c = prompt('What did it actually cost? (USD, optional)', (r.it.priceCents * r.it.qty / 100).toFixed(2)); if (c === null) return; b.cost = c; }
+  if (status === 'cant') { const re = prompt('Why can\'t we buy it? (customer will see this)', 'Out of stock at the store'); if (re === null) return; b.reason = re; }
+  try { await api(`/api/admin/orders/${r.o.id}/item`, b); toast(status === 'pending' ? 'Reset' : 'Saved — customer updated by GENI'); await loadBuy(); load(); } catch (e) { toast(e.message); }
+}
+function csv() {
+  const rows = [['Paid at', 'Order', 'Customer', 'Phone', 'City', 'Zone', 'Store', 'Product', 'Link', 'Option', 'Qty', 'Price USD', 'Line USD', 'Status', 'Store order', 'Actual cost USD', 'Reason']];
+  BUY.forEach((r) => { const z = r.o.customer.zone || {}; rows.push([new Date(r.paidAt).toISOString(), r.o.id, r.o.customer.name, r.o.phone, r.o.customer.city, [z.city, z.region, z.country].filter(Boolean).join(' / '), r.it.store, r.it.title, r.it.url, r.it.option || '', r.it.qty, (r.it.priceCents / 100).toFixed(2), (r.it.priceCents * r.it.qty / 100).toFixed(2), r.it.buy?.status || 'to buy', r.it.buy?.storeOrder || '', r.it.buy?.costUsd || '', r.it.buy?.reason || '']); });
+  const text = rows.map((r) => r.map((v) => '"' + String(v).replace(/"/g, '""') + '"').join(',')).join('\n');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['\ufeff' + text], { type: 'text/csv' })); a.download = 'woow-purchase-sheet-' + new Date().toISOString().slice(0, 10) + '.csv'; a.click();
+}
+
+load(); loadDash(); loadBuy(); setInterval(() => { load(); if (!$('t-buy').hidden) loadBuy(); if (!$('t-dash').hidden) loadDash(); }, 60000);

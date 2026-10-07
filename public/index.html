@@ -37,6 +37,9 @@
     <p class="hint" id="hint">Tap a store to see its products. For other stores, copy the product link and paste it in “Paste a link”.</p>
     <div class="rate2"><i></i>Today's rate <b id="rateTx"></b> · prices shown delivered to Dhaka</div>
   </div>
+  <div id="feed"></div>
+  <div class="rv" id="rvB" hidden></div>
+  <div id="feed2"></div>
   <div class="rh"><b id="rt">Popular right now</b><small id="rn"></small></div>
   <div class="grid" id="grid"></div>
 </section>
@@ -58,6 +61,7 @@
 <section class="v" id="v-item">
   <button class="bk" onclick="window._from==='store'&&curStore?openStore(curStore.id):go('browse')">← Back</button>
   <div class="pd">
+    <div class="pdl">
     <div class="pdi"><img id="dImg" alt=""></div>
     <div class="pdt">
       <span class="src" id="dSrc"></span>
@@ -67,7 +71,9 @@
       <input class="inp" id="dOpt" maxlength="60" placeholder="e.g. Black, US 10, 32x30">
       <span class="lbl">Quantity</span>
       <div class="qty"><button onclick="q(-1)" aria-label="Less">−</button><b id="dQ">1</b><button onclick="q(1)" aria-label="More">+</button></div>
-      <br><a class="ext" id="dLink" target="_blank" rel="noopener">View on store website ↗</a>
+      <a class="same" id="dSame" target="_blank" rel="noopener"></a>
+    </div>
+    <div class="rv" id="rvD" hidden></div>
     </div>
     <aside class="card buy">
       <div class="tt">Price delivered to Dhaka</div>
@@ -125,6 +131,7 @@
 <section class="v" id="v-cart">
   <button class="bk" onclick="go('browse')">← Continue shopping</button>
   <h1 style="margin-bottom:14px">Your cart</h1>
+  <div id="route"></div>
   <div class="two">
     <div id="cGroups"></div>
     <aside class="card buy sum" id="cSum"></aside>
@@ -167,7 +174,7 @@
 </main>
 <aside class="cmp" id="cmp" hidden aria-label="Price comparison">
   <div class="cmp-h"><b>⚖️ Compare prices</b><button id="cmpMin" aria-label="Minimize">—</button></div>
-  <p class="cmp-s" id="cmpS">Same product at other US stores, delivered to Dhaka</p>
+  <p class="cmp-s" id="cmpS">Total to Dhaka · incl. US delivery &amp; tax <button class="lnk" onclick="showWhy()">Why?</button></p>
   <div id="cmpL"></div>
 </aside>
 <button class="cmp-tab" id="cmpTab" hidden>⚖️ Compare <em id="cmpN"></em></button>
@@ -178,6 +185,11 @@
   <details><summary>🛃 Customs duty &amp; brokerage charge</summary><p>Some products may have customs duty or a brokerage charge in Dhaka. We always tell you before you pay it.</p><ul id="brkList"></ul></details>
   <p style="margin-top:14px">Questions? Our customer care or GENI will help you.</p>
   <div class="chat"><a class="wa" id="brkWa" target="_blank" rel="noopener">💬 Chat with us</a><button class="gn2" onclick="document.getElementById('brkM').hidden=true">Got it</button></div>
+</div></div>
+<div class="mdl" id="whyM" hidden onclick="if(event.target===this)this.hidden=true"><div class="mdl-b">
+  <div class="mh"><h3>How WOOW gets it to you</h3><button onclick="document.getElementById('whyM').hidden=true" aria-label="Close">✕</button></div>
+  <div class="why" id="whyL"></div>
+  <div class="chat"><a class="wa" id="whyWa" target="_blank" rel="noopener">💬 Ask us</a><button class="gn2" onclick="document.getElementById('whyM').hidden=true">Got it</button></div>
 </div></div>
 <div class="toast" id="toast"></div>
 <script src="/app.js"></script>

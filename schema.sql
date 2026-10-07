@@ -4,3 +4,10 @@ CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, order_i
 CREATE INDEX IF NOT EXISTS idx_events_order ON events(order_id);
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS products (url TEXT PRIMARY KEY, data TEXT NOT NULL, seen INTEGER NOT NULL);
+-- analytics (who searches what, from which city) and Zinc call log (calls + cost for the dashboard)
+CREATE TABLE IF NOT EXISTS track (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, sid TEXT, type TEXT NOT NULL, country TEXT, region TEXT, city TEXT, store TEXT, q TEXT, url TEXT, price_cents INTEGER, order_id TEXT, extra TEXT);
+CREATE INDEX IF NOT EXISTS idx_track_ts ON track(ts);
+CREATE TABLE IF NOT EXISTS zinc_calls (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, endpoint TEXT NOT NULL, retailer TEXT, q TEXT, ok INTEGER NOT NULL DEFAULT 1, cost_cents INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX IF NOT EXISTS idx_zinc_ts ON zinc_calls(ts);
+-- shared search cache: one paid Zinc search answers every customer for 6 hours
+CREATE TABLE IF NOT EXISTS search_cache (k TEXT PRIMARY KEY, data TEXT NOT NULL, ts INTEGER NOT NULL);

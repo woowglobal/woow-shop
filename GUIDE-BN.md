@@ -84,6 +84,12 @@ Admin panel: `https://...workers.dev/admin` → ইউজার `admin`, পা�
 
 ---
 
+### নতুন: Dashboard, Purchase sheet, US delivery ও tax
+- **📊 Dashboard** — কতজন ভিজিটর, কে কোন শহর থেকে, কী সার্চ করছে, কতবার, cart, order, payment, আর Zinc এর balance + প্রতিদিন কত call ও কত খরচ।
+- **🛒 Purchase sheet** — পেমেন্ট হওয়া প্রতিটা প্রোডাক্ট (লিংক, সাইজ, পরিমাণ, দাম)। কিনে ফেললে **✓ Bought** (store order নম্বর দিন), না পারলে **✕ Can't** (কারণ লিখুন) — GENI সাথে সাথে customer এর order page এ জানিয়ে দেবে। WhatsApp বাটনে মেসেজ রেডি। **Export CSV** দিয়ে Excel এ নিন।
+- **Settings → US delivery & sales tax** — warehouse Delaware হলে tax ০%, New York হলে 8.875%। প্রতিটা store এর free delivery সীমা ($35) আর fee এখানে বদলানো যায়।
+- **Zinc cost control** — দৈনিক Zinc বাজেট ($3 default)। বাজেট শেষ হলে সার্চ আগের সেভ করা প্রোডাক্ট থেকে দেখাবে, নতুন খরচ হবে না।
+
 ## লাইভে যাওয়ার আগে চেকলিস্ট
 
 - [ ] `ADMIN_PASSWORD` শক্ত

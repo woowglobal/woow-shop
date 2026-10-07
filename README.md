@@ -35,6 +35,19 @@ npm run db:local
 npm run dev      # http://localhost:8787  and  /admin
 ```
 
+## Prices customers see
+
+Product (same price as the store) + **US delivery to the WOOW warehouse** (free over each store's limit, e.g. Amazon $35; Zinc live offers data when available, otherwise the rules in Admin → Settings) + **US sales tax** (Delaware 0%, New York 8.875% — set the warehouse state in Settings) + WOOW fee + air shipping to Dhaka.
+
+## Admin
+
+- **Dashboard** — visitors, searches, views, carts, orders, payments, customers by zone (city/region from Cloudflare), top searches/products, Zinc wallet balance, Zinc calls and cost per day.
+- **Purchase sheet** — every paid item to buy now (link, option, qty, price). Mark *Bought* / *Can't buy* → GENI posts the update on the customer's order page; WhatsApp message ready; CSV export.
+
+## Zinc cost savers
+
+Shared 6 h search cache (D1, same answer for every customer) · home page rails and *Recently viewed* built from WOOW's own data (no Zinc calls) · compare uses saved products first · live price re-used for 15 min · shipping offers looked up only below the free-delivery limit (saved 24 h) · daily Zinc budget: over it, search answers from saved products.
+
 ## Order flow
 
 `awaiting_payment` → (`bank_review`) → `paid` → **Buy with Zinc** → `purchasing` → `purchased` → `at_warehouse` → `in_flight` → `in_dhaka` → `delivered`

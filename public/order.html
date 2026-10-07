@@ -72,8 +72,11 @@ function draw(o, phone) {
       const cls = i <= ix ? 'd' : i === ix + 1 && o.status !== 'delivered' ? 'c' : '';
       return `<li class="${cls}"><i>${cls === 'd' ? '✓' : i + 1}</i><div><b>${s[1]}</b><small>${dates[s[0]] || ''}</small></div></li>`;
     }).join('') + '</ul>' + (o.merchantOrders.length ? `<p class="note" style="text-align:left">Store order numbers: ${o.merchantOrders.map(esc).join(', ')}</p>` : '') + '</div>';
-  const items = `<div class="card sec"><h3>Items</h3>${o.items.map((i) => `<div class="ci"><img src="${esc(i.image || '')}" alt=""><div><b>${esc(i.title)}</b><small>${esc(i.store)} · Qty ${i.qty}</small></div><b>${i.lineBdt ? tk(i.lineBdt) : '—'}</b></div>`).join('')}</div>`;
-  $('out').innerHTML = o.status === 'quote_requested' ? head + items : head + hero + tl + items;
+  const items = `<div class="card sec"><h3>Items</h3>${o.items.map((i) => `<div class="ci"><img src="${esc(i.image || '')}" alt=""><div><b>${esc(i.title)}</b><small>${esc(i.store)} · Qty ${i.qty}${i.buy === 'bought' ? '<em class="bb ok">✓ Bought</em>' : i.buy === 'cant' ? '<em class="bb no">Couldn\'t buy</em>' : ''}</small></div><b>${i.lineBdt ? tk(i.lineBdt) : '—'}</b></div>`).join('')}</div>`;
+  // GENI updates: latest news first (purchase team marks items bought / not available)
+  const geni = o.events.filter((e) => /^GENI|^Payment|^Price quote ready|^Bank transfer/.test(e.text)).reverse().slice(0, 6);
+  const up = geni.length ? `<div class="card sec"><h3>GENI updates</h3>${geni.map((e) => `<div class="gu"><span class="orb"></span><div>${esc(e.text)}<small>${new Date(e.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</small></div></div>`).join('')}</div>` : '';
+  $('out').innerHTML = o.status === 'quote_requested' ? head + items : head + hero + up + tl + items;
   const pm = $('payM'); if (pm) pm.addEventListener('click', (e) => { const b = e.target.closest('.op'); if (!b) return; pm.querySelectorAll('.op').forEach((x) => x.classList.toggle('on', x === b)); });
 }
 async function payNow(id, phone) {

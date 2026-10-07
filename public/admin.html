@@ -17,6 +17,26 @@ td{padding:12px;border-bottom:1px solid #F2F2F5;vertical-align:top}tr.r{cursor:p
 .ev{font-size:12px;color:#424245;border-left:2px solid var(--hair);padding:2px 0 8px 10px}.ev small{color:var(--mute);display:block}
 .set{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.set label{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:700;color:var(--mute)}
 .days{display:flex;gap:8px;flex-wrap:wrap}.days label{flex-direction:row;align-items:center;gap:6px;color:var(--ink)}
+.tabs2{flex-wrap:wrap}.tabs2 em{font-style:normal;background:#FF3B30;color:#fff;border-radius:999px;padding:1px 7px;font-size:11px;margin-left:4px}.tabs2 em:empty{display:none}
+.dh{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.seg{display:inline-flex;background:#ECECF0;border-radius:12px;padding:3px}.seg button{border:0;background:none;height:32px;padding:0 14px;border-radius:9px;font-weight:700;cursor:pointer}.seg button.on{background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.1)}
+.kp{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:12px}
+.kp div{background:#fff;border:1px solid var(--hair);border-radius:18px;padding:14px}.kp small{display:block;font-size:11.5px;color:var(--mute);font-weight:700}.kp b{font-size:24px;letter-spacing:-.02em}.kp i{font-style:normal;font-size:11px;color:var(--mute);margin-left:6px}
+.g2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+.fn div{display:grid;grid-template-columns:110px minmax(0,1fr) 54px;gap:10px;align-items:center;font-size:12.5px;margin:6px 0}.fn i{display:block;height:14px;border-radius:6px;background:#FFD400}.fn b{text-align:right}
+.zb{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:10px}.zb div{background:#F7F7FA;border-radius:14px;padding:10px 12px}.zb small{display:block;font-size:11px;color:var(--mute);font-weight:700}.zb b{font-size:20px}
+.bar{height:8px;border-radius:9px;background:#F2F2F5;overflow:hidden;margin:6px 0 2px}.bar u{display:block;height:100%;background:#34C759}.bar u.hi{background:#FF3B30}
+.ch{display:flex;align-items:flex-end;gap:4px;height:90px;margin:10px 0 4px}.ch div{flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%;position:relative}.ch u{display:block;background:#2E2E31;border-radius:4px 4px 0 0}.ch s{display:block;background:#C7E9D0;border-radius:4px 4px 0 0;text-decoration:none}
+.ch small{position:absolute;bottom:-16px;left:0;right:0;text-align:center;font-size:9.5px;color:var(--mute)}
+.mt td,.mt th{padding:7px 8px;font-size:12px}.mt td small{color:var(--mute)}
+.lead2{font-size:12.5px;color:var(--mute);margin:0 0 10px}
+.ps td{font-size:12.5px}.ps img{width:44px;height:44px;border-radius:10px;object-fit:contain;background:#F5F5F7;float:left;margin-right:10px}.ps a{color:#0066CC;font-weight:700;text-decoration:none}
+.ps .w{font-weight:800}.ps .w.late{color:#FF3B30}.ps .acts{display:flex;gap:6px;white-space:nowrap}.ps .acts button,.ps .acts a{height:30px;padding:0 10px;border-radius:9px;border:0;font-weight:800;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;text-decoration:none}
+.ps .ok{background:#34C759;color:#fff}.ps .no{background:#F2F2F7;color:#D92D20}.ps .wa{background:#25D366;color:#fff}.ps .un{background:#F2F2F7;color:#424245}
+.tagb{display:inline-block;font-size:11px;font-weight:800;border-radius:999px;padding:2px 8px;background:#F2F2F7}.tagb.ok{background:#EAF7EE;color:#248A3D}.tagb.no{background:#FDECEC;color:#D92D20}
+.shg{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}.shg div{background:#F7F7FA;border-radius:12px;padding:10px;font-size:12px;font-weight:700}.shg span{display:flex;gap:6px;margin-top:6px}.shg input{height:34px;font-size:13px}
+.act2{font-size:11.5px;color:#424245;padding:6px 0;border-top:1px solid #F2F2F5}.act2 small{color:var(--mute)}
+@media (max-width:900px){.kp{grid-template-columns:1fr 1fr}.g2{grid-template-columns:minmax(0,1fr)}}
 @media (max-width:760px){.set{grid-template-columns:1fr 1fr}.hide-m{display:none}}
 </style>
 </head>
@@ -24,8 +44,18 @@ td{padding:12px;border-bottom:1px solid #F2F2F5;vertical-align:top}tr.r{cursor:p
 <header class="hdr"><a class="logo" href="/admin" aria-label="WOOW home"><svg class="lg-s" viewBox="0 0 53.8 32" height="32" aria-hidden="true"><circle cx="36.83" cy="16" r="16" fill="#FFD400"/><path d="M49.30 15.56A12.48 12.48 0 0 0 45.96 7.49" stroke="#2E2E31" stroke-width="1.28" stroke-linecap="round" fill="none"/><circle cx="16" cy="16" r="16.80" fill="#2E2E31"/><circle cx="16" cy="16" r="16" fill="#FFD400"/><path d="M15.13 3.55A12.48 12.48 0 0 0 3.55 15.13" stroke="#2E2E31" stroke-width="1.28" stroke-linecap="round" fill="none"/><circle cx="18.34" cy="16" r="2.46" fill="#2E2E31"/><circle cx="26.45" cy="16" r="2.46" fill="#2E2E31"/><circle cx="34.42" cy="16" r="2.46" fill="#2E2E31"/></svg><span class="lg-t"><b>wOOw</b><small>Borderless Possibilities...</small></span><small class="lg-tag">Admin</small></a><nav><a class="hb" href="/" target="_blank">Open shop ↗</a></nav></header>
 <div class="demo" id="demoBar" hidden></div>
 <main>
-  <div class="tabs2"><button class="on" data-t="orders">Orders</button><button data-t="settings">Settings</button></div>
-  <section id="t-orders">
+  <div class="tabs2"><button class="on" data-t="dash">📊 Dashboard</button><button data-t="buy">🛒 Purchase sheet <em id="buyN"></em></button><button data-t="orders">Orders</button><button data-t="settings">Settings</button></div>
+  <section id="t-dash">
+    <div class="dh"><div class="seg" id="dDays"><button data-d="1">Today</button><button class="on" data-d="7">7 days</button><button data-d="30">30 days</button></div><button class="hb dk" onclick="loadDash()">Refresh</button></div>
+    <div id="dash"><div class="card sec">Loading…</div></div>
+  </section>
+  <section id="t-buy" hidden>
+    <div class="dh"><div class="seg" id="bAll"><button class="on" data-a="0">To buy now</button><button data-a="1">All paid orders</button></div>
+      <input class="inp" id="bQ" placeholder="Search order, customer, product" style="max-width:260px"><button class="hb" style="background:#fff;color:#1D1D1F;border:1.5px solid #E5E5EA" onclick="csv()">⬇ Export CSV</button><button class="hb dk" onclick="loadBuy()">Refresh</button></div>
+    <p class="lead2">Customers already paid — buy each item from the store now. Mark it <b>Bought</b> or <b>Can't buy</b>: GENI updates the customer's order page.</p>
+    <div class="card" style="overflow:auto"><table class="ps"><thead><tr><th>Waiting</th><th>Order · customer</th><th>Product</th><th>Qty</th><th>Price</th><th>Status</th><th></th></tr></thead><tbody id="bRows"></tbody></table></div>
+  </section>
+  <section id="t-orders" hidden>
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap"><select class="inp" id="fSt" style="width:auto"><option value="">All statuses</option></select><input class="inp" id="fQ" placeholder="Search order no., name, phone" style="max-width:280px"><button class="hb dk" onclick="load()">Refresh</button></div>
     <div class="card" style="overflow:auto"><table><thead><tr><th>Order</th><th>Customer</th><th class="hide-m">Items</th><th>Due / Paid</th><th>Status</th></tr></thead><tbody id="rows"></tbody></table></div>
   </section>
@@ -40,6 +70,19 @@ td{padding:12px;border-bottom:1px solid #F2F2F5;vertical-align:top}tr.r{cursor:p
         <label>Default weight kg<input class="inp" id="sDef" type="number" step="0.1"></label>
         <label>Days from flight to Dhaka<input class="inp" id="sLand" type="number"></label>
         <label>Packing weight added %<input class="inp" id="sPack" type="number" step="1"></label>
+      </div>
+      <h3 style="margin-top:22px">US delivery &amp; sales tax</h3>
+      <div class="set">
+        <label>WOOW US warehouse state<select class="inp" id="sWh"><option value="DE">Delaware (DE) · no sales tax</option><option value="NY">New York (NY)</option></select></label>
+        <label>New York sales tax %<input class="inp" id="sNy" type="number" step="0.001"></label>
+        <label>Delaware sales tax %<input class="inp" id="sDe" type="number" step="0.001"></label>
+      </div>
+      <span class="lbl">US delivery from store to warehouse (used when Zinc has no live shipping data)</span>
+      <div class="shg" id="sShip"></div>
+      <h3 style="margin-top:22px">Zinc cost control</h3>
+      <div class="set">
+        <label>Daily Zinc budget $ (searches stop, saved products used)<input class="inp" id="sBud" type="number" step="0.5"></label>
+        <label>Re-use a live price for (minutes)<input class="inp" id="sFresh" type="number"></label>
       </div>
       <span class="lbl">Products that may have a customs brokerage charge (one per line)</span>
       <textarea class="inp" id="sBrk" style="height:160px;padding:10px 12px"></textarea>

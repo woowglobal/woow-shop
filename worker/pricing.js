@@ -12,6 +12,17 @@ export const DEFAULT_SETTINGS = {
     'Branded watches, jewellery and gold', 'Power banks and items with large batteries', 'Car and motorcycle parts',
     'Commercial quantity of any item (more than personal use)'],
   rateLockMinutes: 15,
+  // US delivery: store → WOOW US warehouse. Free when that store's subtotal reaches freeOver (USD), else fee (USD).
+  // Zinc's live offer data (shipping_options) is used at checkout when available; these rules are the fallback.
+  usShipping: {
+    amazon: { freeOver: 35, fee: 6.99 }, walmart: { freeOver: 35, fee: 6.99 }, target: { freeOver: 35, fee: 5.99 },
+    bestbuy: { freeOver: 35, fee: 5.99 }, macys: { freeOver: 25, fee: 10.95 }, costco: { freeOver: 75, fee: 9.99 },
+    default: { freeOver: 35, fee: 7.99 },
+  },
+  warehouseState: 'DE',  // DE = Delaware (no sales tax) · NY = New York
+  taxRates: { DE: 0, NY: 8.875 }, // % sales tax on products + US delivery
+  zincDailyBudgetCents: 300, // stop paid Zinc searches after this much per day (saved products are used instead)
+  liveFreshMinutes: 15,  // at Pay, skip the paid live price check if we checked this product in the last N minutes
   flightDays: [3, 6],   // WOOW flights: 0=Sun … 3=Wed, 6=Sat
   dhakaDaysAfterFlight: 3,
   transitDays: {        // store → US warehouse, [min, max] days
@@ -30,27 +41,60 @@ export async function savePricing(db, p) {
   for (const k of ['rate', 'feePercent', 'minFee', 'kgRate', 'defaultKg', 'packagingPercent', 'rateLockMinutes', 'dhakaDaysAfterFlight']) {
     if (p[k] !== undefined && p[k] !== '' && !Number.isNaN(Number(p[k]))) next[k] = Number(p[k]);
   }
+  for (const k of ['zincDailyBudgetCents', 'liveFreshMinutes']) if (p[k] !== undefined && p[k] !== '' && !Number.isNaN(Number(p[k]))) next[k] = Math.max(0, Number(p[k]));
+  if (p.warehouseState && /^[A-Z]{2}$/.test(p.warehouseState)) next.warehouseState = p.warehouseState;
+  if (p.taxRates && typeof p.taxRates === 'object') next.taxRates = Object.fromEntries(Object.entries(p.taxRates).filter(([k, v]) => /^[A-Z]{2}$/.test(k) && v !== '' && Number(v) >= 0 && Number(v) < 20).map(([k, v]) => [k, Number(v)]));
+  if (p.usShipping && typeof p.usShipping === 'object') {
+    const u = {};
+    for (const [k, v] of Object.entries(p.usShipping)) if (/^[a-z]+$/.test(k) && v && Number(v.freeOver) >= 0 && Number(v.fee) >= 0) u[k] = { freeOver: Number(v.freeOver), fee: Number(v.fee) };
+    if (u.default) next.usShipping = u;
+  }
   if (Array.isArray(p.brokerageList)) next.brokerageList = p.brokerageList.map((x) => String(x).trim().slice(0, 120)).filter(Boolean).slice(0, 40);
   if (Array.isArray(p.flightDays)) next.flightDays = p.flightDays.map(Number).filter((d) => d >= 0 && d <= 6);
   await db.prepare('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind('pricing', JSON.stringify(next)).run();
   return next;
 }
 
-/** items: [{ retailer, priceCents, qty, kg }] */
+export const taxRate = (p) => Number((p.taxRates || {})[p.warehouseState] || 0);
+export const shipRule = (p, retailer) => (p.usShipping || {})[retailer] || (p.usShipping || {}).default || { freeOver: 35, fee: 7.99 };
+
+/** items: [{ retailer, priceCents, qty, kg, shipCents? }]
+ *  Per store: US delivery to the WOOW warehouse (free over the store's limit), then US sales tax
+ *  for the warehouse state (Delaware 0%), WOOW fee, and air shipping to Dhaka by estimated weight. */
 export function quote(items, p) {
   let usd = 0, kg = 0;
+  const groups = {};
   const lines = items.map((it) => {
     const lineUsd = (it.priceCents / 100) * it.qty;
     usd += lineUsd;
     kg += (it.kg || p.defaultKg) * it.qty;
+    (groups[it.retailer] ||= { retailer: it.retailer, store: it.store, subCents: 0, zincShip: [] });
+    groups[it.retailer].subCents += it.priceCents * it.qty;
+    if (Number.isFinite(it.shipCents)) groups[it.retailer].zincShip.push(it.shipCents);
     return { ...it, lineUsd: Math.round(lineUsd * 100) / 100, lineBdt: Math.round(lineUsd * p.rate) };
   });
+  const stores = Object.values(groups).map((g) => {
+    const r = shipRule(p, g.retailer), limit = Math.round(r.freeOver * 100);
+    let shipCents, source;
+    if (limit && g.subCents >= limit) { shipCents = 0; source = 'free_over'; }
+    else if (g.zincShip.length) { shipCents = Math.max(...g.zincShip); source = 'zinc'; }
+    else { shipCents = Math.round(r.fee * 100); source = 'rule'; }
+    return { retailer: g.retailer, store: g.store, subUsd: g.subCents / 100, shipUsd: shipCents / 100, freeOver: r.freeOver, needUsd: shipCents ? Math.max(0, Math.round(limit - g.subCents) / 100) : 0, source };
+  });
+  const usShipUsd = Math.round(stores.reduce((a, s) => a + s.shipUsd, 0) * 100) / 100;
+  const tr = taxRate(p), taxUsd = Math.round((usd + usShipUsd) * tr) / 100;
   const sellerKg = Math.round(kg * 100) / 100;
   kg = Math.ceil(kg * (1 + (p.packagingPercent ?? 10) / 100) * 10) / 10; // + packing box weight
   const product = Math.round(usd * p.rate);
+  const usShip = Math.round(usShipUsd * p.rate), usTax = Math.round(taxUsd * p.rate);
   const fee = items.length ? Math.round(Math.max(p.minFee, product * p.feePercent / 100)) : 0;
   const shipping = Math.round(kg * p.kgRate);
-  return { lines, usd: Math.round(usd * 100) / 100, rate: p.rate, product, usTax: 0, fee, sellerKg, packagingPercent: p.packagingPercent ?? 10, kg, shipping, total: product + fee + shipping, payNowSplit: product + fee };
+  const payNowSplit = product + usShip + usTax + fee;
+  return {
+    lines, usd: Math.round(usd * 100) / 100, rate: p.rate, product, stores, usShipUsd, usShip,
+    taxState: p.warehouseState, taxRate: tr, taxUsd, usTax, fee, sellerKg, packagingPercent: p.packagingPercent ?? 10, kg, shipping,
+    total: payNowSplit + shipping, payNowSplit,
+  };
 }
 
 /** Delivery plan in Dhaka dates: warehouse date, next WOOW flight, Dhaka arrival, delivery window. */
