@@ -85,7 +85,7 @@ async function localSearch(env, q, retailer) {
   const r = await env.DB.prepare(sql + ' ORDER BY seen DESC LIMIT 24').bind(...args).all();
   return r.results.map((x) => JSON.parse(x.data)).filter((p) => !p.demo);
 }
-export async function search(env, ctx, q, retailer, { budgetCents = 0 } = {}) {
+export async function search(env, ctx, q, retailer, { budgetCents = 0, ttlMs = SEARCH_TTL } = {}) {
   q = (q || '').trim().slice(0, 120);
   if (!env.ZINC_API_KEY) { const L = demoSearch(q, retailer); ctx.waitUntil(remember(env, L)); return L; }
   const k = skey(q || 'best sellers', retailer);
@@ -95,7 +95,7 @@ export async function search(env, ctx, q, retailer, { budgetCents = 0 } = {}) {
   const put = (L) => cache.put(key, new Response(JSON.stringify(L), { headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${CACHE_SEC}` } }));
   try {
     const row = await env.DB.prepare('SELECT data,ts FROM search_cache WHERE k=?').bind(k).first();
-    if (row && Date.now() - row.ts < SEARCH_TTL) { const L = JSON.parse(row.data); ctx.waitUntil(Promise.all([put(L), logZinc(env, 'search_saved', { retailer, q, cost: 0 })])); return L; }
+    if (row && Date.now() - row.ts < ttlMs) { const L = JSON.parse(row.data); ctx.waitUntil(Promise.all([put(L), logZinc(env, 'search_saved', { retailer, q, cost: 0 })])); return L; }
   } catch {}
   if (await overBudget(env, budgetCents)) {
     const L = await localSearch(env, q, retailer);

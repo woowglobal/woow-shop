@@ -348,3 +348,10 @@ html,body{overflow-x:clip}
 .trend button:hover{border-color:#1D1D1F}
 .fd{margin-top:16px;margin-bottom:6px}.fd .row-h small{display:block;font-size:12px;color:var(--mute);font-weight:500;margin-top:1px}
 .tg.t2{background:#FFF6CC;color:#7A5B00}
+/* Bangladesh favourites */
+.bdc{margin-top:18px}.bdl{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:8px}
+.bdl button{display:flex;flex-direction:column;align-items:center;gap:6px;border:0;background:none;cursor:pointer;font-weight:700;font-size:11.5px;color:#1D1D1F;padding:4px 0;text-align:center;line-height:1.2}
+.bdl i{font-style:normal;font-size:26px;width:58px;height:58px;border-radius:50%;background:#fff;border:1px solid var(--hair);display:flex;align-items:center;justify-content:center;transition:transform .15s}
+.bdl button:hover i{transform:translateY(-2px);border-color:#FFD400;box-shadow:0 6px 16px rgba(255,212,0,.25)}
+@media (max-width:1050px){.bdl{grid-template-columns:repeat(6,minmax(0,1fr))}}
+@media (max-width:520px){.bdl{grid-template-columns:repeat(4,minmax(0,1fr))}.bdl i{width:52px;height:52px;font-size:23px}}

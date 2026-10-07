@@ -198,7 +198,8 @@ async function handle(req, env, ctx) {
   if (path === '/api/search') {
     if (limited(req, 's', 30, 60000)) return bad('Too many searches, please wait a moment.', 429);
     const q = url.searchParams.get('q') || '', st = url.searchParams.get('store') || 'all', pr = await getPricing(env.DB);
-    const results = await zinc.search(env, ctx, q, st, { budgetCents: pr.zincDailyBudgetCents });
+    // home/store rails (same words every day) are shared for 24 h; customer searches for 6 h
+    const results = await zinc.search(env, ctx, q, st, { budgetCents: pr.zincDailyBudgetCents, ttlMs: url.searchParams.get('rail') === '1' ? 864e5 : 6 * 3600e3 });
     if (url.searchParams.get('t') !== '0') ctx.waitUntil(track(env, req, 'search', { q: q || '(popular)', store: st, extra: { n: results.length } }));
     return json({ results });
   }

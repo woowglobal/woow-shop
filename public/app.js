@@ -65,15 +65,35 @@ const taxNote = () => CFG.taxRate ? `${CFG.taxRate}% · ${CFG.warehouseState ===
 const shipNote = (s) => s.free ? `Free over $${s.r.freeOver}` : `${usd(s.c)} · add ${usd(s.need)} for free`;
 const storeLink = (p) => p.url && !p.url.startsWith('https://demo.') && !p.url.includes('#') ? p.url : null;
 
+// Most searched in Bangladesh (WOOW's experience) — home circles, trending chips and product rails
+const BD_POP = [['💊', 'Supplements', 'supplements'], ['🍊', 'Vitamins', 'vitamins'], ['💄', 'Cosmetics', 'cosmetics makeup'], ['⌚', 'Watches', 'watch'],
+  ['👜', 'Ladies bags', 'women handbag'], ['👟', 'Shoes', 'shoes'], ['💻', 'Laptops', 'laptop'], ['🐾', 'Pet food', 'pet food'],
+  ['🧸', 'Toys', 'toys'], ['🚁', 'Drones', 'mini drone camera'], ['💪', 'Gym supplements', 'whey protein'], ['📱', 'Used iPad', 'ipad renewed']];
+let popObs = null;
+function drawPopRails() {
+  $('feed3').innerHTML = BD_POP.map(([ic, n, q], i) => `<div class="srow fd" data-q="${esc(q)}"><div class="row-h"><div><b>${ic} ${esc(n)}</b><small>Popular in Bangladesh</small></div><button data-tq="${esc(q)}">See all →</button></div><div class="rail">${'<div class="skel"></div>'.repeat(5)}</div></div>`).join('');
+  if (popObs) popObs.disconnect();
+  popObs = new IntersectionObserver((ents) => ents.forEach(async (en) => {
+    if (!en.isIntersecting) return; popObs.unobserve(en.target);
+    const rail = en.target.querySelector('.rail');
+    try { const L = await fetchRow('all', en.target.dataset.q, true); rail.innerHTML = L.length ? L.slice(0, 14).map((p) => card(p)).join('') : '<div class="row-empty">Nothing here right now.</div>'; }
+    catch { en.target.remove(); }
+  }), { rootMargin: '200px' });
+  $('feed3').querySelectorAll('.srow').forEach((r) => popObs.observe(r));
+}
+
 // ── home feed: what Bangladeshi shoppers searched, viewed and bought (WOOW's own data → no Zinc cost) ──
 const since = (t) => { const m = Math.max(1, Math.round((Date.now() - t) / 60000)); return m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + 'h ago' : Math.round(m / 1440) + 'd ago'; };
 async function loadFeed() {
   let d; try { d = await api('/api/feed'); } catch { return; }
   const rail = (title, sub, list, tag) => list.length ? `<div class="srow fd"><div class="row-h"><div><b>${title}</b><small>${sub}</small></div></div><div class="rail">${remember(list).map((p) => card(p, tag(p))).join('')}</div></div>` : '';
-  $('feed').innerHTML = (d.searches.length ? `<div class="trend"><b>🔥 Trending</b>${d.searches.map((q) => `<button data-tq="${esc(q)}">${esc(q)}</button>`).join('')}</div>` : '') +
+  const tq = [...new Set([...d.searches, ...BD_POP.map((x) => x[1].toLowerCase())])].slice(0, 14);
+  $('feed').innerHTML = `<div class="bdc"><div class="row-h"><div><b>🇧🇩 Most searched in Bangladesh</b></div></div><div class="bdl">${BD_POP.map(([ic, n, q]) => `<button data-tq="${esc(q)}"><i>${ic}</i>${esc(n)}</button>`).join('')}</div></div>` +
+    `<div class="trend"><b>🔥 Trending</b>${tq.map((q) => `<button data-tq="${esc((BD_POP.find((x) => x[1].toLowerCase() === q) || [0, 0, q])[2])}">${esc(q)}</button>`).join('')}</div>` +
     rail('🇧🇩 Just bought in Bangladesh', 'Real WOOW orders', d.bought, (p) => `${esc(p.city)} · ${since(p.at)}`) +
     rail('⭐ Most popular', 'Loved by WOOW shoppers', d.popular, (p) => p.sold ? `🔥 ${p.sold} bought` : 'Popular in Bangladesh');
   $('feed2').innerHTML = rail('✨ New today', 'Found by other shoppers in the last 24 h', d.fresh, () => 'New today');
+  drawPopRails();
 }
 document.addEventListener('click', (e) => { const t = e.target.closest('[data-tq]'); if (t) { setMode('search'); $('q').value = t.dataset.tq; doSearch(); $('rt').scrollIntoView({ behavior: 'smooth' }); } });
 
@@ -196,7 +216,7 @@ $('tiles').addEventListener('click', (e) => {
 
 // ── store pages ──
 async function fetchRow(storeId, q, rail) {
-  const d = await api(`/api/search?q=${encodeURIComponent(q)}&store=${storeId}${rail ? '&t=0' : ''}`);
+  const d = await api(`/api/search?q=${encodeURIComponent(q)}&store=${storeId}${rail ? '&t=0&rail=1' : ''}`);
   return remember(d.results || []);
 }
 function rowHtml(id, title, q, hero) {
