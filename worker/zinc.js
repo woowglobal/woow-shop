@@ -139,13 +139,15 @@ export function parseUrl(url) {
 export async function product(env, url, { fresh = false, live = false, liveFreshMs = 0 } = {}) {
   if (!env.ZINC_API_KEY) { const d = demoCatalog().find((p) => p.url === url) || (await recall(env, url, Infinity)); if (d) await remember(env, [d]); return d || null; }
   // Cost saver: a price checked a few minutes ago is still "live" — no second paid call.
-  const known = await recall(env, url, live ? liveFreshMs : fresh ? 10 * 60 * 1000 : CACHE_SEC * 1000 * 4);
+  const known = await recall(env, url, live ? liveFreshMs : fresh ? 10 * 60 * 1000 : 6 * 3600e3);
   if (known) return known;
   const cached = await recall(env, url, Infinity);
+  // Zinc can't read this product's page (e.g. some Macy's items → 422): use the saved search price, don't pay again for 24 h
+  if (cached && cached.detailFailAt && Date.now() - cached.detailFailAt < 864e5) return { ...cached, priceChecked: 'search' };
   const pu = parseUrl(url);
   if (pu && MANUAL_RETAILERS[pu.retailer]) { if (cached && live) return cached; const e = new Error('manual'); e.manual = true; throw e; }
   if (!pu || !pu.retailer || !pu.id) {
-    if (cached && live) return { ...cached, priceChecked: 'search' };
+    if (cached) return { ...cached, priceChecked: 'search' };
     throw new Error('This store link is not supported yet. Our team can buy it for you by hand.');
   }
   let d;
@@ -153,7 +155,10 @@ export async function product(env, url, { fresh = false, live = false, liveFresh
     d = await zinc(env, `/products/${encodeURIComponent(pu.id)}?retailer=${pu.retailer}&max_age=600`);
     if (d.status && d.status !== 'completed') throw new Error('Could not read this product right now. Try again in a minute.');
   } catch (e) {
-    if (cached && live) return { ...cached, priceChecked: 'search' }; // keep the search price if the live check fails
+    if (cached) { // keep the saved search price if Zinc can't read the product right now
+      await env.DB.prepare('UPDATE products SET data=? WHERE url=?').bind(JSON.stringify({ ...cached, detailFailAt: Date.now() }), cached.url).run().catch(() => {});
+      return { ...cached, priceChecked: 'search' };
+    }
     throw e;
   }
   const livePrice = Number(d.price ?? d.price_cents ?? d.buybox_price ?? 0) || 0;
