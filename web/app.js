@@ -756,6 +756,95 @@ async function placeOrder() {
 // ── phone bottom bar: price + main button always in reach (product, cart, checkout) ──
 function setMbar(html) { const m = $('mbar'); m.innerHTML = html || ''; m.hidden = !html; document.body.classList.toggle('has-mbar', !!html); }
 
+// ── Send Parcel: 1) quick quote (ZIP/city) → "Check price only" (rates → addresses) or "Ship now" (addresses → rates) → review → booked ──
+const PC = { us: 'USA', bd: 'Bangladesh', gb: 'UK', ca: 'Canada', ae: 'UAE', au: 'Australia' };
+const PBOX = [['env', 'Envelope', '12×9×1 in'], ['small', 'Small box', '12×10×8 in'], ['medium', 'Medium box', '16×12×10 in'], ['large', 'Large box', '20×16×14 in']];
+let P = { screen: 'start', mode: '', fromC: 'us', toC: 'bd', fromQ: '', toQ: '', size: 'small', lb: '3', pick: 0, R: null, s: {}, r: {}, contents: '', id: '' };
+function openParcel() { if (P.screen === 'done') P.screen = 'start'; go('parcel'); drawParcel(); }
+function pVal(id) { return ($(id)?.value || '').trim(); }
+function pKeep() { // remember what was typed before re-drawing
+  if ($('pFrom')) { P.fromQ = pVal('pFrom'); P.toQ = pVal('pTo'); P.lb = pVal('pLb') || P.lb; }
+  if ($('psName')) { P.s = { name: pVal('psName'), phone: pVal('psPhone'), addr: pVal('psAddr') }; P.r = { name: pVal('prName'), phone: pVal('prPhone'), addr: pVal('prAddr') }; P.contents = pVal('pCont'); }
+}
+function pSet(o) { pKeep(); Object.assign(P, o); drawParcel(); }
+function drawParcel() {
+  const order = P.mode === 'order' ? ['start', 'details', 'rates', 'review'] : ['start', 'rates', 'details', 'review'];
+  const L = { start: 'Quick quote', rates: 'Choose rate', details: 'Sender & receiver', review: 'Review & book' };
+  const at = P.screen === 'done' ? 4 : order.indexOf(P.screen);
+  $('pSteps').innerHTML = order.map((k, i) => `<div class="${i < at ? 'd' : i === at ? 'c' : ''}"><i></i><span>${i + 1} · ${L[k]}</span></div>`).join('');
+  const chips = (list, on, fn) => list.map((k) => `<button class="${k === on ? 'on' : ''}" onclick="${fn}('${k}')">${PC[k]}</button>`).join('');
+  const route = P.R ? `<div class="prt"><b>${esc(P.fromQ)}, ${PC[P.fromC]} → ${esc(P.toQ)}, ${PC[P.toC]}</b><span>${P.R.box} · ${P.R.lb} lb${P.R.dimLb > P.R.lb ? ` · billed ${P.R.bill} lb by box size` : ''}</span><button class="lnk" onclick="pSet({screen:'start'})">Change</button></div>` : '';
+  const pk = P.R?.rates[P.pick];
+  let h = '';
+  if (P.screen === 'start') {
+    h = `<div class="card sec"><h3>Where is it going?</h3>
+      <div class="fg">
+        <label>From<div class="chips">${chips(['us', 'bd'], P.fromC, 'pFromC')}</div><input class="inp" id="pFrom" value="${esc(P.fromQ)}" placeholder="ZIP code or city, e.g. 11433"></label>
+        <label>To<div class="chips">${chips(P.fromC === 'bd' ? ['us'] : ['bd', 'us', 'gb', 'ca', 'ae', 'au'], P.toC, 'pToC')}</div><input class="inp" id="pTo" value="${esc(P.toQ)}" placeholder="${P.toC === 'bd' ? 'City or post code, e.g. Dhaka 1212' : 'ZIP code or city'}"></label>
+      </div>
+      <span class="lbl">Parcel</span>
+      <div class="ops c4 pbx">${PBOX.map(([k, n, d]) => `<button class="op ${P.size === k ? 'on' : ''}" onclick="pSet({size:'${k}'})"><span class="ck"></span><b>${n}</b><small>${d}</small></button>`).join('')}</div>
+      <label class="pw2">Weight (lb)<input class="inp" id="pLb" type="number" min="0.1" step="0.1" value="${esc(P.lb)}"></label></div>
+      <div class="card sec"><h3>What would you like to do?</h3>
+        <div class="ops c2">
+          <button class="op" onclick="pStart('quote')"><span class="lg" style="background:#FFF6CC;color:#1D1D1F">💲</span><b>Check price only</b><small>See every carrier's price now. Full addresses only if you book.</small></button>
+          <button class="op on" onclick="pStart('order')"><span class="lg" style="background:#1D1D1F;color:#FFD400">📦</span><b>Ship now</b><small>Book it — sender &amp; receiver name, phone and full address next.</small></button>
+        </div><div class="err" id="pqErr"></div></div>`;
+  } else if (P.screen === 'rates') {
+    h = `${route}<div class="card sec"><h3>Choose a rate</h3><p class="lead2">${P.mode === 'quote' ? 'Prices for your route. Pick one — then add sender &amp; receiver details. The price stays the same.' : 'Your details are saved. Pick the carrier you like.'}</p>
+      <div class="prl">${P.R.rates.map((x, i) => `<button class="prr ${i === P.pick ? 'on' : ''}" onclick="pSet({pick:${i}})"><span class="ck"></span><i>${esc(x.mark)}</i><span><b>${esc(x.carrier)}${x.cheapest ? ' <em>Cheapest</em>' : ''}</b><small>${esc(x.service)} · ${esc(x.days)}</small></span><span class="pp"><b>$${x.usd.toFixed(2)}</b><small>${tk(x.bdt)}</small></span></button>`).join('') || '<p class="lead2">No carrier for this route yet — WOOW will quote you on WhatsApp.</p>'}</div>
+      ${pk ? `<button class="btn dk" onclick="pAfterRates()">Continue with ${esc(pk.carrier)} · $${pk.usd.toFixed(2)}</button>` : ''}</div>`;
+  } else if (P.screen === 'details') {
+    const f = (who, k, lab, ph, extra = '') => `<label class="${k === 'Addr' ? 'full' : ''}">${lab}<input class="inp" id="p${who}${k}" value="${esc((who === 's' ? P.s : P.r)[k.toLowerCase()] || '')}" placeholder="${ph}" ${extra}></label>`;
+    h = `${route}${P.mode === 'quote' && pk ? `<div class="prp"><span><b>${esc(pk.carrier)}</b> · ${esc(pk.days)}</span><b>$${pk.usd.toFixed(2)}</b></div>` : ''}
+      <div class="two2">
+        <div class="card sec"><h3>Sender <small>${PC[P.fromC]}</small></h3><div class="fg">${f('s', 'Name', 'Full name', '', 'autocomplete="name"')}${f('s', 'Phone', 'Phone', '', 'inputmode="tel" autocomplete="tel"')}${f('s', 'Addr', 'Street address', 'House, street, apt')}</div><div class="pzf"><span>ZIP / city</span><b>${esc(P.fromQ)}</b><em>From your quote</em></div></div>
+        <div class="card sec"><h3>Receiver <small>${PC[P.toC]}</small></h3><div class="fg">${f('r', 'Name', 'Full name', '')}${f('r', 'Phone', 'Phone', '', 'inputmode="tel"')}${f('r', 'Addr', 'Street address', 'House, road, area')}</div><div class="pzf"><span>ZIP / city</span><b>${esc(P.toQ)}</b><em>From your quote</em></div></div>
+      </div>
+      <div class="card sec"><label class="pw2" style="max-width:none">What's inside? (for the label and customs)<input class="inp" id="pCont" value="${esc(P.contents)}" placeholder="e.g. 2 T-shirts, 1 pair of shoes"></label>
+      <div class="err" id="pdErr"></div><button class="btn dk" style="margin-top:12px" onclick="pAfterDetails()">${P.mode === 'quote' ? 'Review &amp; book' : 'See prices'}</button></div>`;
+  } else if (P.screen === 'review') {
+    h = `${route}<div class="card sec"><h3>Review &amp; book</h3>
+      <div class="prv"><div><span>Carrier</span><b>${esc(pk.carrier)} · ${esc(pk.service)} · ${esc(pk.days)}</b></div>
+      <div class="two3"><div><span>Sender</span><b>${esc(P.s.name)}</b>${esc(P.s.phone)}<br>${esc(P.s.addr)}, ${esc(P.fromQ)}, ${PC[P.fromC]}</div><div><span>Receiver</span><b>${esc(P.r.name)}</b>${esc(P.r.phone)}<br>${esc(P.r.addr)}, ${esc(P.toQ)}, ${PC[P.toC]}</div></div>
+      ${P.contents ? `<div><span>Inside</span><b>${esc(P.contents)}</b></div>` : ''}
+      <div class="tot"><span>Total</span><b>$${pk.usd.toFixed(2)} <small>${tk(pk.bdt)}</small></b></div></div>
+      <div class="err" id="pbErr"></div><button class="btn" id="pBook" onclick="pBook()">Book parcel · $${pk.usd.toFixed(2)}</button>
+      <p class="note">WOOW confirms your booking and sends the label, pickup options and payment link on WhatsApp.</p></div>`;
+  } else {
+    h = `<div class="card sec" style="text-align:center;padding:30px"><div class="okc"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#FFD400" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+      <h2 style="margin:14px 0 4px">Parcel booked</h2><p class="lead" style="margin:0">Booking <b>${esc(P.id)}</b> · ${esc(pk?.carrier || '')}. WOOW will message you on WhatsApp with the label, pickup and payment.</p>
+      <button class="btn dk" style="margin:18px auto 0;max-width:280px" onclick="P={...P,screen:'start',mode:'',toQ:'',pick:0,R:null,r:{},contents:''};drawParcel()">Send another parcel</button></div>`;
+  }
+  $('pBody').innerHTML = h;
+}
+function pFromC(k) { pSet({ fromC: k, toC: k === 'bd' ? 'us' : 'bd' }); }
+function pToC(k) { pSet({ toC: k }); }
+async function pStart(mode) {
+  pKeep(); $('pqErr').style.display = 'none';
+  try {
+    P.R = await api('/api/parcel/rates', { fromC: P.fromC, toC: P.toC, fromQ: P.fromQ, toQ: P.toQ, size: P.size, lb: P.lb });
+    P.mode = mode; P.pick = 0;
+    if (mode === 'order') return needLogin(() => { P.s = { name: P.s.name || ME.name, phone: P.s.phone || ME.phone, addr: P.s.addr || '' }; pSet({ screen: 'details' }); }, 'Sign in to book your parcel.');
+    pSet({ screen: 'rates' });
+  } catch (e) { $('pqErr').textContent = e.message; $('pqErr').style.display = 'block'; }
+}
+function pAfterRates() {
+  if (P.mode === 'quote') return needLogin(() => { P.s = { name: P.s.name || ME.name, phone: P.s.phone || ME.phone, addr: P.s.addr || '' }; pSet({ screen: 'details' }); }, 'Sign in to book this price.');
+  pSet({ screen: 'review' });
+}
+function pAfterDetails() {
+  pKeep();
+  const ok = (x) => x.name && (x.phone || '').length >= 6 && (x.addr || '').length >= 4;
+  if (!ok(P.s) || !ok(P.r)) { $('pdErr').textContent = 'Please add name, phone and street address for sender and receiver.'; $('pdErr').style.display = 'block'; return; }
+  pSet({ screen: P.mode === 'quote' ? 'review' : 'rates' });
+}
+async function pBook() {
+  const b = $('pBook'); b.disabled = true;
+  try { const d = await api('/api/parcel/book', { fromC: P.fromC, toC: P.toC, fromQ: P.fromQ, toQ: P.toQ, size: P.size, lb: P.lb, pick: P.pick, sender: P.s, receiver: P.r, contents: P.contents, mode: P.mode }); P.id = d.id; pSet({ screen: 'done' }); }
+  catch (e) { $('pbErr').textContent = e.message; $('pbErr').style.display = 'block'; b.disabled = false; }
+}
+
 // ── navigation ──
 function go(v) {
   if ((v === 'cart' || v === 'pay') && !ME) return needLogin(() => go(v), v === 'pay' ? 'Sign in to check out and pay in Taka.' : 'Sign in to see your cart.');
@@ -766,7 +855,7 @@ function go(v) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
   if (history.state?.v !== v) history.pushState({ v }, '', v === 'browse' ? '/' : '#' + v);
 }
-window.addEventListener('hashchange', () => { const h = location.hash.slice(1); if (h.startsWith('store=')) openStore(h.slice(6), false); });
+window.addEventListener('hashchange', () => { const h = location.hash.slice(1); if (h === 'parcel') { openParcel(); return; } if (h.startsWith('store=')) openStore(h.slice(6), false); });
 window.addEventListener('popstate', (e) => { if (e.state?.v === 'store') openStore(e.state.s, false); else go(e.state?.v || 'browse'); });
 
 (async function init() {
@@ -777,5 +866,5 @@ window.addEventListener('popstate', (e) => { if (e.state?.v === 'store') openSto
   const asId = new URLSearchParams(location.search).get('as');   // WOOW admin opening a customer's portal
   if (asId) { history.replaceState(null, '', '/'); try { const d = await api('/api/auth/as', { id: asId }); ME = d.user; drawMe(); toast('Viewing as ' + ME.name); } catch (e) { toast(e.message); } }
   save(); rvDraw(); loadFeed(); loadForYou(); doSearch(); beacon('visit');
-  const h = location.hash.slice(1); if (h === 'cart' || h === 'pay') go(h); else if (h.startsWith('store=')) openStore(h.slice(6), false);
+  const h = location.hash.slice(1); if (h === 'cart' || h === 'pay') go(h); else if (h === 'parcel') openParcel(); else if (h.startsWith('store=')) openStore(h.slice(6), false);
 })();

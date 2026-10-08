@@ -516,3 +516,28 @@ body.has-asb{padding-top:44px}
 .pmc .ops.c4 .op{padding:10px 12px}.pmc .op small{display:none}.pmc .op b{margin-top:6px}
 #v-pay .sec{margin-bottom:10px}#v-pay h1,#v-cart h1{margin-bottom:10px!important}
 @media (min-width:821px){#v-pay .two,#v-cart .two{grid-template-columns:minmax(0,1fr) 380px}.sum{position:sticky;top:76px;max-height:calc(100vh - 92px);overflow:auto}}
+
+/* ── Send Parcel (same cards, buttons and inputs as the rest of the shop) ── */
+.pst{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:14px}
+.pst div{display:flex;flex-direction:column;gap:6px}.pst i{height:4px;border-radius:4px;background:#E3E5EC}.pst span{font-size:11.5px;font-weight:800;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pst .d i{background:#1D1D1F}.pst .c i{background:#FFD400}.pst .d span,.pst .c span{color:#1D1D1F}
+#v-parcel .chips{margin:6px 0 2px;flex-wrap:wrap}
+#v-parcel .fg label{gap:8px}
+.pbx .op{padding:12px}.pbx .op b{margin-top:0}
+.pw2{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:700;color:var(--mute);margin-top:12px;max-width:200px}
+.prt{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center;padding:11px 14px;border-radius:14px;background:#fff;border:1px solid var(--hair);margin-bottom:12px;font-size:13.5px}
+.prt span{color:var(--mute);font-size:12.5px}.prt .lnk{margin-left:auto}
+.prl{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
+.prr{display:grid;grid-template-columns:20px 44px minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 14px;border-radius:16px;border:1.5px solid var(--hair);background:#fff;cursor:pointer;text-align:left;font-family:inherit;position:relative}
+.prr .ck{width:18px;height:18px;border-radius:50%;border:1.5px solid #D2D2D7;position:relative}.prr.on{border-color:var(--ink);background:#FFFBEA}.prr.on .ck{border:6px solid #1D1D1F}
+.prr i{width:44px;height:44px;border-radius:12px;background:#1D1D1F;color:#FFD400;font-style:normal;font-weight:900;font-size:12px;display:flex;align-items:center;justify-content:center}
+.prr b{font-size:14.5px}.prr b em{font-style:normal;font-size:10.5px;background:#1D1D1F;color:#FFD400;border-radius:999px;padding:2px 8px;margin-left:6px;vertical-align:1px}.prr small{display:block;font-size:12px;color:var(--mute)}
+.prr .pp{text-align:right}.prr .pp b{font-size:18px;letter-spacing:-.02em}
+.prp{display:flex;justify-content:space-between;gap:10px;padding:11px 14px;border-radius:14px;background:#FFFBEA;border:1.5px solid #FFE68A;margin-bottom:12px;font-size:13.5px}
+.two2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+.pzf{display:flex;gap:8px;align-items:center;margin-top:10px;padding:9px 12px;border-radius:12px;background:#F5F6F9;font-size:13px}.pzf span{color:var(--mute)}.pzf em{margin-left:auto;font-style:normal;font-size:11px;font-weight:800;color:#0E7A3E}
+.prv>div{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid #F2F2F5;font-size:13.5px}.prv span{color:var(--mute);font-size:12px;font-weight:700}
+.prv .two3{display:grid;grid-template-columns:1fr 1fr;gap:12px;line-height:1.5}.prv .two3 b{display:block}
+.prv .tot{border:0;align-items:baseline}.prv .tot b{font-size:24px;letter-spacing:-.02em}.prv .tot small{font-size:13px;color:var(--mute);font-weight:600}
+#v-parcel .card.sec{margin-bottom:12px}#v-parcel .btn{max-width:420px}
+@media (max-width:700px){.two2,.prv .two3{grid-template-columns:minmax(0,1fr)}.pst span{font-size:10.5px}#v-parcel .ops.c4{grid-template-columns:1fr 1fr}}

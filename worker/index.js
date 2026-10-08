@@ -1,6 +1,6 @@
 // WOOW Shop on Cloudflare Workers — API, payments, Zinc purchasing, admin.
 // Website files (public/) are served by Cloudflare Static Assets.
-import { getPricing, savePricing, quote, deliveryPlan, taxRate, shipRule, upcomingFlights, cleanFlights, refreshPlan, estimateOne } from './pricing.js';
+import { getPricing, savePricing, quote, deliveryPlan, taxRate, shipRule, upcomingFlights, cleanFlights, refreshPlan, estimateOne, parcelRates } from './pricing.js';
 import * as zinc from './zinc.js';
 import * as ssl from './sslcommerz.js';
 import * as auth from './auth.js';
@@ -47,7 +47,7 @@ function limited(req, key, max, perMs) {
 }
 
 // ───────── analytics: who searches what, from where (Cloudflare gives country / region / city) ─────────
-const TRACK_TYPES = new Set(['visit', 'search', 'view', 'compare', 'cart', 'checkout', 'link', 'quote', 'order', 'paid', 'recent']);
+const TRACK_TYPES = new Set(['parcel', 'parcel_book', 'visit', 'search', 'view', 'compare', 'cart', 'checkout', 'link', 'quote', 'order', 'paid', 'recent']);
 const zoneOf = (req) => { const c = req?.cf || {}; return { country: c.country || null, region: c.region || null, city: c.city || null }; };
 async function track(env, req, type, f = {}) {
   if (!TRACK_TYPES.has(type)) return;
@@ -289,6 +289,31 @@ async function handle(req, env, ctx) {
     return json({ manual: true, url: u, retailer: where.retailer, store: where.store });
   }
 
+  // ── Send Parcel: quick quote by ZIP/city (no sign-in), booking with full addresses (signed in) ──
+  const parcelQ = (b) => ({ fromC: b.fromC === 'bd' ? 'bd' : 'us', toC: ['us', 'bd', 'gb', 'ca', 'ae', 'au', 'other'].includes(b.toC) ? b.toC : 'bd', fromQ: String(b.fromQ || '').trim().slice(0, 60), toQ: String(b.toQ || '').trim().slice(0, 60), size: String(b.size || 'small'), lb: Number(b.lb) || 0 });
+  if (path === '/api/parcel/rates' && m === 'POST') {
+    if (limited(req, 'pr', 40, 60000)) return bad('Too many requests, please wait a moment.', 429);
+    const q = parcelQ(await body(req));
+    if (q.fromQ.length < 2 || q.toQ.length < 2) return bad('Add a ZIP code or city for both From and To.');
+    const r = parcelRates(q, await prc());
+    ctx.waitUntil(track(env, req, 'parcel', { q: `${q.fromQ} → ${q.toQ}`, store: r.route, user: (await me())?.id, extra: { lb: q.lb, size: q.size } }));
+    return json(r);
+  }
+  if (path === '/api/parcel/book' && m === 'POST') {
+    const u = await me(); if (!u) return bad('login', 401);
+    if (limited(req, 'pb', 6, 60000)) return bad('Too many requests, please wait a moment.', 429);
+    const b = await body(req), q = parcelQ(b), r = parcelRates(q, await prc()), pick = r.rates[Math.max(0, parseInt(b.pick, 10) || 0)];
+    if (!pick) return bad('Please choose a rate.');
+    const who = (x) => ({ name: String(x?.name || '').trim().slice(0, 80), phone: String(x?.phone || '').trim().slice(0, 30), addr: String(x?.addr || '').trim().slice(0, 200) });
+    const sender = who(b.sender), receiver = who(b.receiver);
+    if (!sender.name || sender.phone.length < 6 || sender.addr.length < 4 || !receiver.name || receiver.phone.length < 6 || receiver.addr.length < 4) return bad('Please add name, phone and street address for sender and receiver.');
+    const id = 'SP-' + (100000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 900000));
+    const data = { ...q, quote: { box: r.box, bill: r.bill, route: r.route }, pick, sender, receiver, contents: String(b.contents || '').slice(0, 200), mode: b.mode === 'order' ? 'order' : 'quote' };
+    await env.DB.prepare('INSERT INTO parcels (id,created_at,user_id,phone,status,data) VALUES (?,?,?,?,?,?)').bind(id, nowIso(), u.id, u.phone, 'requested', JSON.stringify(data)).run();
+    ctx.waitUntil(track(env, req, 'parcel_book', { order: id, user: u.id, price: Math.round(pick.usd * 100), store: r.route }));
+    return json({ id, pick });
+  }
+
   // Product page price breakdown — public, uses saved product data only (never a paid lookup)
   if (path === '/api/estimate' && m === 'POST') {
     if (limited(req, 'es', 60, 60000)) return bad('Too many requests, please wait a moment.', 429);
@@ -510,6 +535,17 @@ async function adminApi(req, env, ctx, path, m) {
   }
   let em;
   if ((em = path.match(/^\/api\/admin\/expenses\/(\d+)\/delete$/)) && m === 'POST') { await env.DB.prepare('DELETE FROM expenses WHERE id=?').bind(+em[1]).run(); return json({ ok: true }); }
+  if (path === '/api/admin/parcels') {
+    const r = await env.DB.prepare('SELECT * FROM parcels ORDER BY created_at DESC LIMIT 300').all().catch(() => ({ results: [] }));
+    return json({ parcels: r.results.map((x) => ({ ...x, data: J(x.data) })) });
+  }
+  let pm;
+  if ((pm = path.match(/^\/api\/admin\/parcels\/(SP-\d+)\/status$/)) && m === 'POST') {
+    const st = String((await body(req)).status || '');
+    if (!['requested', 'confirmed', 'label_sent', 'picked_up', 'in_transit', 'delivered', 'cancelled'].includes(st)) return bad('Unknown status');
+    await env.DB.prepare('UPDATE parcels SET status=? WHERE id=?').bind(st, pm[1]).run();
+    return json({ ok: true });
+  }
   if (path === '/api/admin/users') {
     const q = '%' + String(new URL(req.url).searchParams.get('q') || '').trim().replace(/[%_]/g, '') + '%';
     const r = await env.DB.prepare(`SELECT u.id, u.name, u.phone, u.email, u.created_at, u.last_login, u.disabled, u.google_sub IS NOT NULL g, u.apple_sub IS NOT NULL a, u.phone_verified w, u.pass != '' p, u.addresses,

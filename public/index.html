@@ -25,7 +25,7 @@
 <div class="svc">
 <a class="sv on" href="/"><span class="si">🛍️</span><b>Buy For Me</b><small>We buy it for you</small></a>
 <a class="sv" href="https://woowglobal.com" target="_blank" rel="noopener"><span class="si">📦</span><b>Ship For Me</b><small>Free US address</small></a>
-<a class="sv" href="https://woowglobal.com" target="_blank" rel="noopener"><span class="si">🚚</span><b>Send Parcel</b><small>Compare &amp; ship</small></a>
+<a class="sv" href="#parcel" onclick="openParcel();return false"><span class="si">🚚</span><b>Send Parcel</b><small>Compare &amp; ship</small></a>
 <a class="sv" href="/order"><span class="si">🌍</span><b>Track</b><small>Global tracking</small></a>
 </div>
 <div class="tabs" id="mode"><button data-m="link">🔗 Paste a link</button><button class="on" data-m="search">🏬 Browse stores</button></div>
@@ -82,6 +82,13 @@
 <div class="gn"><span class="orb"></span><span><b>GENI checks price and stock</b> before buying. If the store price goes up, we ask you first.</span></div>
 </aside>
 </div>
+</section>
+<section class="v" id="v-parcel">
+<button class="bk" onclick="go('browse')">← Back</button>
+<h1 style="margin-bottom:6px">Send Parcel</h1>
+<p class="lead" style="margin:0 0 14px">ZIP code or city is enough to see the price.</p>
+<div class="pst" id="pSteps"></div>
+<div id="pBody"></div>
 </section>
 <section class="v" id="v-quote">
 <button class="bk" onclick="go('browse')">← Back</button>

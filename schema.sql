@@ -28,3 +28,5 @@ CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 -- one-time WhatsApp login codes, and Google/Apple sign-ups waiting for a mobile number
 CREATE TABLE IF NOT EXISTS otp (phone TEXT PRIMARY KEY, code TEXT NOT NULL, expires INTEGER NOT NULL, tries INTEGER NOT NULL DEFAULT 0, sent INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE IF NOT EXISTS pending_auth (id TEXT PRIMARY KEY, data TEXT NOT NULL, expires INTEGER NOT NULL);
+-- Send Parcel bookings
+CREATE TABLE IF NOT EXISTS parcels (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, user_id TEXT, phone TEXT, status TEXT NOT NULL, data TEXT NOT NULL);

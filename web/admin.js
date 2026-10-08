@@ -78,6 +78,7 @@ async function loadSet() {
   const S = await api('/api/admin/settings'), p = S.pricing;
   $('sRate').value = p.rate; $('sFeeLo').value = p.feeLow ?? 7; $('sFeeHi').value = p.feeHigh ?? 5; $('sFeeCut').value = p.feeCut ?? 100; $('sVol').value = p.volDivisor ?? 6000;
   $('sBrkR').value = (p.brokerRules || []).map((r) => `${r.name} | ${r.words} | ${r.perKg}`).join('\n');
+  $('sParR').value = (p.parcelRates || []).map((r) => [r.route, r.carrier, r.mark, r.service, r.days, r.base, r.perLb].join(' | ')).join('\n');
   $('sVolR').value = (p.volRules || []).map((r) => `${r.name} | ${r.words} | ${r.dims.join(' x ')}`).join('\n'); $('sMin').value = p.minFee; $('sKg').value = p.kgRate; $('sDef').value = p.defaultKg; $('sLand').value = p.dhakaDaysAfterFlight; $('sPack').value = p.packagingPercent ?? 10; $('sBrk').value = (p.brokerageList || []).join('\n');
   $('sWh').value = p.warehouseState || 'DE'; $('sNy').value = p.taxRates?.NY ?? 8.875; $('sDe').value = p.taxRates?.DE ?? 0;
   $('sBud').value = ((p.zincDailyBudgetCents ?? 300) / 100).toFixed(2); $('sFresh').value = p.liveFreshMinutes ?? 15;
@@ -90,6 +91,7 @@ async function loadSet() {
 async function saveSet() {
   try { await api('/api/admin/settings', { rate: $('sRate').value, feeLow: $('sFeeLo').value, feeHigh: $('sFeeHi').value, feeCut: $('sFeeCut').value, volDivisor: $('sVol').value,
     brokerRules: $('sBrkR').value.split('\n').map((l) => l.split('|').map((x) => x.trim())).filter((a) => a.length >= 3).map(([name, words, perKg]) => ({ name, words, perKg })),
+    parcelRates: $('sParR').value.split('\n').map((l) => l.split('|').map((x) => x.trim())).filter((a) => a.length >= 7).map(([route, carrier, mark, service, days, base, perLb]) => ({ route, carrier, mark, service, days, base, perLb })),
     volRules: $('sVolR').value.split('\n').map((l) => l.split('|').map((x) => x.trim())).filter((a) => a.length >= 3).map(([name, words, dims]) => ({ name, words, dims })), minFee: $('sMin').value, kgRate: $('sKg').value, defaultKg: $('sDef').value, dhakaDaysAfterFlight: $('sLand').value, packagingPercent: $('sPack').value, brokerageList: $('sBrk').value.split('\n'), flightMonthDays: $('sMD').value.split(/[^0-9]+/).filter(Boolean).map(Number),
     warehouseState: $('sWh').value, taxRates: { DE: $('sDe').value, NY: $('sNy').value }, zincDailyBudgetCents: Math.round(Number($('sBud').value) * 100), liveFreshMinutes: $('sFresh').value, homeDeliveryFee: $('sHome').value,
     guard: { browsePer30: $('gBrowse').value, paidPer30: $('gPaid').value, guestPaidPer30: $('gGuest').value, ipPaidPer30: $('gIp').value, blockHours: $('gHours').value },
@@ -98,7 +100,8 @@ async function saveSet() {
 document.querySelector('.tabs2').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b) return;
   document.querySelectorAll('.tabs2 button').forEach((x) => x.classList.toggle('on', x === b));
-  ['dash', 'buy', 'money', 'cust', 'orders', 'settings'].forEach((t) => { $('t-' + t).hidden = b.dataset.t !== t; });
+  ['dash', 'buy', 'money', 'parcels', 'cust', 'orders', 'settings'].forEach((t) => { $('t-' + t).hidden = b.dataset.t !== t; });
+  if (b.dataset.t === 'parcels') loadParcels();
   if (b.dataset.t === 'cust') loadCust();
   if (b.dataset.t === 'money') loadMoney(); if (b.dataset.t === 'settings') loadSet(); if (b.dataset.t === 'dash') loadDash(); if (b.dataset.t === 'buy') loadBuy();
 });
@@ -303,6 +306,20 @@ function csvMoney() {
   const text = rows.map((r) => r.map((v) => '"' + String(v ?? '').replace(/"/g, '""') + '"').join(',')).join('\n');
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['\ufeff' + text], { type: 'text/csv' })); a.download = 'woow-money-' + new Date().toISOString().slice(0, 10) + '.csv'; a.click();
 }
+
+// ───────── Send Parcel bookings ─────────
+const PST = { requested: 'New request', confirmed: 'Confirmed', label_sent: 'Label & payment sent', picked_up: 'Picked up', in_transit: 'In transit', delivered: 'Delivered', cancelled: 'Cancelled' };
+async function loadParcels() {
+  const d = await api('/api/admin/parcels'), C = { us: 'USA', bd: 'Bangladesh', gb: 'UK', ca: 'Canada', ae: 'UAE', au: 'Australia' };
+  $('parRows').innerHTML = d.parcels.length ? d.parcels.map((x) => { const p = x.data; return `<tr><td><b>${x.id}</b><br><small>${new Date(x.created_at).toLocaleString()}<br>${p.mode === 'quote' ? 'Checked price first' : 'Ship now'}</small></td>
+    <td>${esc(p.fromQ)}, ${C[p.fromC] || p.fromC} → ${esc(p.toQ)}, ${C[p.toC] || p.toC}<br><small>${esc(p.quote?.box || '')} · ${p.lb} lb (billed ${p.quote?.bill} lb)${p.contents ? ' · ' + esc(p.contents) : ''}</small></td>
+    <td>${esc(p.sender.name)}<br><small>${esc(p.sender.phone)}<br>${esc(p.sender.addr)}</small></td><td>${esc(p.receiver.name)}<br><small>${esc(p.receiver.phone)}<br>${esc(p.receiver.addr)}</small></td>
+    <td><b>$${Number(p.pick.usd).toFixed(2)}</b><br><small>${esc(p.pick.carrier)} · ${esc(p.pick.days)}</small></td>
+    <td><select class="inp" style="height:34px;font-size:12.5px" onchange="parSt('${x.id}',this.value)">${Object.entries(PST).map(([k, v]) => `<option value="${k}" ${k === x.status ? 'selected' : ''}>${v}</option>`).join('')}</select>
+    <a class="hb" style="height:30px;margin-top:6px;background:#25D366;color:#fff;text-decoration:none;display:inline-flex" target="_blank" rel="noopener" href="https://wa.me/${String(p.sender.phone).replace(/\D/g, '').replace(/^0/, '880')}">WhatsApp</a></td></tr>`; }).join('')
+    : '<tr><td colspan="6" style="text-align:center;color:#86868B;padding:30px">No parcel bookings yet</td></tr>';
+}
+async function parSt(id, status) { await api(`/api/admin/parcels/${id}/status`, { status }); toast('Status updated'); }
 
 // ───────── Customers: accounts, sign-in methods, open their portal ─────────
 let cuT = null;

@@ -30,6 +30,19 @@ export const DEFAULT_SETTINGS = {
     bestbuy: { freeOver: 35, fee: 5.99 }, macys: { freeOver: 25, fee: 10.95 }, costco: { freeOver: 75, fee: 9.99 },
     default: { freeOver: 35, fee: 7.99 },
   },
+  // Send Parcel rates (USD): price = base + perLb × billable lb (bigger of weight and box size ÷ 139)
+  parcelRates: [
+    { route: 'us-bd', carrier: 'WOOW Cargo', mark: 'W', service: 'Air · flights 10th, 20th, 30th', days: '12–15 days', base: 6, perLb: 4.2 },
+    { route: 'us-bd', carrier: 'DHL Express', mark: 'DHL', service: 'Express Worldwide', days: '3–5 days', base: 38, perLb: 9.5 },
+    { route: 'us-bd', carrier: 'FedEx', mark: 'FDX', service: 'International Priority', days: '3–6 days', base: 42, perLb: 10 },
+    { route: 'us-us', carrier: 'USPS', mark: 'US', service: 'Ground Advantage', days: '2–5 days', base: 6.4, perLb: 0.55 },
+    { route: 'us-us', carrier: 'UPS', mark: 'UPS', service: 'Ground', days: '1–5 days', base: 9.9, perLb: 0.7 },
+    { route: 'us-us', carrier: 'FedEx', mark: 'FDX', service: 'Home Delivery', days: '1–5 days', base: 10.5, perLb: 0.72 },
+    { route: 'us-intl', carrier: 'DHL Express', mark: 'DHL', service: 'Express Worldwide', days: '3–6 days', base: 45, perLb: 11 },
+    { route: 'us-intl', carrier: 'FedEx', mark: 'FDX', service: 'International Economy', days: '5–8 days', base: 39, perLb: 9.8 },
+    { route: 'bd-us', carrier: 'WOOW $10/Parcel', mark: 'W', service: 'Economy air', days: '10–14 days', base: 10, perLb: 3.5 },
+    { route: 'bd-us', carrier: 'DHL Express', mark: 'DHL', service: 'Express Worldwide', days: '3–5 days', base: 36, perLb: 9 },
+  ],
   warehouseState: 'NY',  // NY = New York (8.875%) · DE = Delaware (no sales tax)
   taxRates: { DE: 0, NY: 8.875 }, // % sales tax on products + US delivery
   zincDailyBudgetCents: 300,
@@ -66,6 +79,7 @@ export async function savePricing(db, p) {
   }
   if (Array.isArray(p.brokerRules)) next.brokerRules = p.brokerRules.map((r) => ({ name: String(r.name || '').slice(0, 60), words: String(r.words || '').toLowerCase().slice(0, 600), perKg: Math.max(0, Number(r.perKg) || 0) })).filter((r) => r.name && r.words).slice(0, 20);
   if (Array.isArray(p.volRules)) next.volRules = p.volRules.map((r) => ({ name: String(r.name || '').slice(0, 60), words: String(r.words || '').toLowerCase().slice(0, 600), dims: (Array.isArray(r.dims) ? r.dims : String(r.dims || '').split(/[x×, ]+/)).map(Number).filter((n) => n > 0).slice(0, 3) })).filter((r) => r.name && r.words && r.dims.length === 3).slice(0, 20);
+  if (Array.isArray(p.parcelRates)) next.parcelRates = p.parcelRates.map((r) => ({ route: String(r.route || '').trim().toLowerCase().slice(0, 10), carrier: String(r.carrier || '').trim().slice(0, 40), mark: String(r.mark || r.carrier || '').trim().slice(0, 4), service: String(r.service || '').trim().slice(0, 60), days: String(r.days || '').trim().slice(0, 20), base: Number(r.base) || 0, perLb: Number(r.perLb) || 0 })).filter((r) => /^(us|bd)-(us|bd|intl)$/.test(r.route) && r.carrier).slice(0, 40);
   if (Array.isArray(p.brokerageList)) next.brokerageList = p.brokerageList.map((x) => String(x).trim().slice(0, 120)).filter(Boolean).slice(0, 40);
   if (Array.isArray(p.flightMonthDays)) { const d = p.flightMonthDays.map(Number).filter((x) => x >= 1 && x <= 31); if (d.length) next.flightMonthDays = [...new Set(d)].sort((a, b) => a - b); }
   if (Array.isArray(p.flights)) next.flights = cleanFlights(p.flights);
@@ -224,4 +238,17 @@ export function refreshPlan(plan, p) {
   if (ymd(nf.date) === plan.flight) return plan;
   const land = new Date(nf.date.getTime() + p.dhakaDaysAfterFlight * DAY);
   return { ...plan, flight: ymd(nf.date), flightNo: nf.no || 'BDUS-' + ymd(nf.date).slice(2).replace(/-/g, ''), flightNote: nf.note || '', land: ymd(land), deliverFrom: ymd(new Date(land.getTime() + DAY)), deliverTo: ymd(new Date(land.getTime() + 2 * DAY)), moved: true };
+}
+
+/** Send Parcel price list for a route. Billable lb = bigger of the weight and the box size (L×W×H in ÷ 139). */
+export const PARCEL_BOXES = { env: ['Envelope', [12, 9, 1]], small: ['Small box', [12, 10, 8]], medium: ['Medium box', [16, 12, 10]], large: ['Large box', [20, 16, 14]] };
+export function parcelRates(q, p) {
+  const from = q.fromC === 'bd' ? 'bd' : 'us', to = ['us', 'bd'].includes(q.toC) ? q.toC : 'intl';
+  const route = `${from}-${to}`, box = PARCEL_BOXES[q.size] || PARCEL_BOXES.small;
+  const lb = Math.max(0.1, Math.min(150, Number(q.lb) || 0)), dimLb = Math.ceil((box[1][0] * box[1][1] * box[1][2]) / 139 * 10) / 10;
+  const bill = Math.max(lb, dimLb);
+  const list = (p.parcelRates || DEFAULT_SETTINGS.parcelRates).filter((r) => r.route === route)
+    .map((r) => ({ carrier: r.carrier, mark: r.mark, service: r.service, days: r.days, usd: Math.round((r.base + r.perLb * bill) * 100) / 100 }));
+  const low = list.length ? Math.min(...list.map((x) => x.usd)) : 0;
+  return { route, box: box[0], dims: box[1], lb, dimLb, bill, rate: p.rate, rates: list.map((x) => ({ ...x, bdt: Math.round(x.usd * p.rate), cheapest: x.usd === low })) };
 }
